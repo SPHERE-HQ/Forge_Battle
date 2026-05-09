@@ -232,12 +232,6 @@ export default function MainMenu({ player, onSelectMode }: Props) {
                         ? "rgba(255,80,0,0.15)"
                         : "rgba(255,60,0,0.07)"
                     : "rgba(255,255,255,0.03)",
-                  backgroundImage: mode.active
-                    ? "url('/assets/kenney/button_square_header_large_rectangle.png')"
-                    : "none",
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  backgroundBlendMode: "overlay",
                   boxShadow: mode.active && isHovered
                     ? "0 0 40px rgba(255,100,0,0.3), inset 0 1px 0 rgba(255,180,50,0.15)"
                     : mode.active
@@ -245,9 +239,6 @@ export default function MainMenu({ player, onSelectMode }: Props) {
                       : "none",
                   transform: isPressed ? "scale(0.97)" : isHovered ? "translateY(-2px)" : "none",
                   transition: "all 0.18s ease",
-                  filter: mode.active
-                    ? "hue-rotate(20deg) saturate(1.8) brightness(0.85)"
-                    : "grayscale(1) brightness(0.3)",
                   borderRadius: 2,
                   gap: "clamp(4px, 1.5vw, 10px)",
                   minHeight: "clamp(100px, 22vw, 170px)",

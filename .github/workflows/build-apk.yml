@@ -1,0 +1,114 @@
+name: Build Forge Arena APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm --filter @workspace/fps-game run build
+        env:
+          PORT: "3000"
+          BASE_PATH: "/"
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Capacitor CLI
+        run: pnpm --filter @workspace/fps-game exec npx cap --version || true
+
+      - name: Add Android platform
+        working-directory: artifacts/fps-game
+        run: npx @capacitor/cli add android || true
+
+      - name: Sync Capacitor
+        working-directory: artifacts/fps-game
+        run: npx @capacitor/cli sync android
+
+      - name: Force landscape orientation in AndroidManifest
+        working-directory: artifacts/fps-game/android
+        run: |
+          MANIFEST="app/src/main/AndroidManifest.xml"
+          sed -i 's/android:configChanges="/android:screenOrientation="sensorLandscape" android:configChanges="/' "$MANIFEST"
+          echo "=== AndroidManifest.xml (activity section) ==="
+          grep -A5 "android:screenOrientation" "$MANIFEST" || echo "(check manifest manually)"
+
+      - name: Setup Keystore
+        working-directory: artifacts/fps-game/android
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using stored keystore..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/forge-arena.keystore
+            echo "STORE_PASS=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"          >> $GITHUB_ENV
+            echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}"        >> $GITHUB_ENV
+          else
+            echo "Generating new keystore (first run)..."
+            keytool -genkey -v \
+              -keystore app/forge-arena.keystore \
+              -alias forge-arena \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=Forge Arena, OU=SPHERE HQ, O=SPHERE HQ, L=Jakarta, ST=Jakarta, C=ID" \
+              -storepass ForgeArena2025! \
+              -keypass  ForgeArena2025! \
+              -noprompt
+            echo "STORE_PASS=ForgeArena2025!" >> $GITHUB_ENV
+            echo "KEY_ALIAS=forge-arena"      >> $GITHUB_ENV
+            echo "KEY_PASS=ForgeArena2025!"   >> $GITHUB_ENV
+            echo ""
+            echo "============================================================"
+            echo "  IMPORTANT: Save this as KEYSTORE_BASE64 in repo secrets!"
+            echo "============================================================"
+            base64 -w 0 app/forge-arena.keystore
+            echo ""
+            echo "  Also add these secrets:"
+            echo "  KEYSTORE_PASSWORD = ForgeArena2025!"
+            echo "  KEY_ALIAS         = forge-arena"
+            echo "  KEY_PASSWORD      = ForgeArena2025!"
+            echo "============================================================"
+          fi
+
+      - name: Build Release APK
+        working-directory: artifacts/fps-game/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=forge-arena.keystore \
+            -Pandroid.injected.signing.store.password="${{ env.STORE_PASS }}" \
+            -Pandroid.injected.signing.key.alias="${{ env.KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ env.KEY_PASS }}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-arena-release
+          path: artifacts/fps-game/android/app/build/outputs/apk/release/*.apk
+          retention-days: 90

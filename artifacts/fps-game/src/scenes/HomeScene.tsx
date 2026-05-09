@@ -5,6 +5,7 @@ import { useCurrency } from "../context/CurrencyContext";
 import Character3D from "./Character3D";
 import StorePanel from "./StorePanel";
 import SettingsPanel from "../SettingsPanel";
+import { useBGM } from "../hooks/useBGM";
 import {
   FONT_PRIMARY, FONT_NARROW,
   TOPBAR_HEIGHT_VH, BOTTOMBAR_HEIGHT_VH, SIDEBAR_WIDTH_VW,
@@ -94,6 +95,7 @@ export default function HomeScene({ player, mode, onBattle }: Props) {
   const { settings }        = useSettings();
   const isDark               = settings.theme === "dark";
   const tk                   = getThemeTokens(isDark);
+  useBGM(settings.bgmTrack, settings.bgmVolume);
 
   const [storeOpen, setStoreOpen]       = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);

@@ -185,7 +185,7 @@ export default function HomeScene({ player, mode, onBattle }: Props) {
 
       {/* ── Panels (outside pointer-events:none layer) ── */}
       <StorePanel open={storeOpen} onClose={() => setStoreOpen(false)} />
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {settingsOpen && <SettingsPanel player={player} onClose={() => setSettingsOpen(false)} />}
 
       {/* ── Global keyframes ── */}
       <style>{`

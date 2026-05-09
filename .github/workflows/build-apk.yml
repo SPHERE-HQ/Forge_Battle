@@ -62,18 +62,20 @@ jobs:
           grep -A5 "android:screenOrientation" "$MANIFEST" || echo "(check manifest manually)"
 
       - name: Setup Keystore
-        working-directory: artifacts/fps-game/android
         run: |
+          KEYSTORE_PATH="${{ github.workspace }}/artifacts/fps-game/android/app/forge-arena.keystore"
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> $GITHUB_ENV
+
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Using stored keystore..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/forge-arena.keystore
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
             echo "STORE_PASS=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"          >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}"        >> $GITHUB_ENV
           else
             echo "Generating new keystore (first run)..."
             keytool -genkey -v \
-              -keystore app/forge-arena.keystore \
+              -keystore "$KEYSTORE_PATH" \
               -alias forge-arena \
               -keyalg RSA -keysize 2048 -validity 10950 \
               -dname "CN=Forge Arena, OU=SPHERE HQ, O=SPHERE HQ, L=Jakarta, ST=Jakarta, C=ID" \
@@ -87,7 +89,7 @@ jobs:
             echo "============================================================"
             echo "  IMPORTANT: Save this as KEYSTORE_BASE64 in repo secrets!"
             echo "============================================================"
-            base64 -w 0 app/forge-arena.keystore
+            base64 -w 0 "$KEYSTORE_PATH"
             echo ""
             echo "  Also add these secrets:"
             echo "  KEYSTORE_PASSWORD = ForgeArena2025!"
@@ -101,7 +103,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=forge-arena.keystore \
+            -Pandroid.injected.signing.store.file="${{ env.KEYSTORE_PATH }}" \
             -Pandroid.injected.signing.store.password="${{ env.STORE_PASS }}" \
             -Pandroid.injected.signing.key.alias="${{ env.KEY_ALIAS }}" \
             -Pandroid.injected.signing.key.password="${{ env.KEY_PASS }}"

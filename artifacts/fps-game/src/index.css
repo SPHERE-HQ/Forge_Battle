@@ -1,3 +1,21 @@
+/* ── Kenney Future fonts ── */
+@font-face {
+  font-family: 'Kenney Future';
+  src: url('/assets/kenney/Kenney Future.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Kenney Future Narrow';
+  src: url('/assets/kenney/Kenney Future Narrow.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Base reset ── */
 * {
   margin: 0;
   padding: 0;
@@ -12,10 +30,41 @@ html, body, #root {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  /* Prevent iOS rubber-band scroll */
+  overscroll-behavior: none;
 }
 
 canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+}
+
+/* ── Input: allow text input touch interaction ── */
+input, textarea {
+  touch-action: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ── Button reset ── */
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ── Responsive viewport meta fix for Android WebView ── */
+@media screen and (orientation: portrait) {
+  html, body, #root {
+    /* Game forces landscape, but if portrait slips through: */
+    background: #000;
+  }
+}
+
+/* ── Safe area insets (notch / punch-hole cameras) ── */
+html {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }

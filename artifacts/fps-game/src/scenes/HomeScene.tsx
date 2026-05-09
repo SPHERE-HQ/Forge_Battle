@@ -7,10 +7,16 @@ import StorePanel from "./StorePanel";
 import SettingsPanel from "../SettingsPanel";
 import { useBGM } from "../hooks/useBGM";
 import {
-  FONT_PRIMARY, FONT_NARROW,
-  TOPBAR_HEIGHT_VH, BOTTOMBAR_HEIGHT_VH, SIDEBAR_WIDTH_VW,
-  CURRENCY_VRX_LABEL, CURRENCY_ATHS_LABEL,
+  FONT_PRIMARY,
+  FONT_NARROW,
+  TOPBAR_HEIGHT_VH,
+  BOTTOMBAR_HEIGHT_VH,
+  SIDEBAR_WIDTH_VW,
+  CURRENCY_VRX_LABEL,
+  CURRENCY_ATHS_LABEL,
   FADE_IN_MS,
+  CHARACTERS,
+  type CharacterId,
 } from "../constants/game";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
@@ -89,9 +95,10 @@ interface Props {
   player:  PlayerData;
   mode:    "offline" | "online" | "lan";
   onBattle: () => void;
+  characterId: CharacterId;
 }
 
-export default function HomeScene({ player, mode, onBattle }: Props) {
+export default function HomeScene({ player, mode, onBattle, characterId }: Props) {
   const { settings }        = useSettings();
   const isDark               = settings.theme === "dark";
   const tk                   = getThemeTokens(isDark);
@@ -130,7 +137,8 @@ export default function HomeScene({ player, mode, onBattle }: Props) {
         opacity: modelLoaded ? 1 : 0,
         transition: `opacity ${FADE_IN_MS}ms ease`,
       }}>
-        <Character3D theme={settings.theme} onLoaded={() => setModelLoaded(true)} />
+        <Character3D theme={settings.theme} onLoaded={() => setModelLoaded(true)}
+            modelPath={selectedCharacter.modelPath} />
       </div>
 
       {/* Loading shimmer while model loads */}

@@ -114,7 +114,7 @@ function CSSFallbackIntro({ onComplete }: { onComplete?: () => void }) {
     el.appendChild(p1);
 
     // ── Phase 2: FORGE ARENA ────────────────────────────────────
-    const timer1 = setTimeout(() => {
+    const timer1 = setTimeout(() => {  // was 3000, now matches T1=6000
       el.innerHTML = "";
       el.appendChild(style);
 
@@ -182,7 +182,7 @@ function CSSFallbackIntro({ onComplete }: { onComplete?: () => void }) {
       el.appendChild(p2);
 
       onComplete?.();
-    }, 3000);
+    }, 6000);
 
     return () => {
       clearTimeout(timer1);
@@ -230,7 +230,7 @@ async function runThreeIntro(
   renderer.setSize(W, H);
   renderer.setClearColor(0x000000);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  renderer.toneMappingExposure = 0.9;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -239,7 +239,8 @@ async function runThreeIntro(
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 2.2, 0.45, 0.08);
+  // threshold=0.3: only bright lights bloom, text stays readable
+  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.6, 0.4, 0.3);
   composer.addPass(bloom);
 
   function makeGlowText(opts: { text: string; font: string; color: string; glow: string; cw: number; ch: number; layers?: number; shadowBlur?: number }): THREE.CanvasTexture {
@@ -346,14 +347,15 @@ async function runThreeIntro(
   const fireMesh = new THREE.Points(fireGeo, fireMat);
   scene.add(fireMesh);
 
-  const forgeTex  = makeGlowText({ text:"FORGE", font:"900 128px Impact,'Arial Black',sans-serif", color:"#ff8800", glow:"#ff2200", cw:1024, ch:280, layers:14, shadowBlur:50 });
-  const forgeMat  = new THREE.MeshBasicMaterial({ map:forgeTex, transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false });
-  const forgeMesh = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 1.52), forgeMat);
-  forgeMesh.position.set(0, 0.7, 0); forgeMesh.scale.set(2.8, 2.8, 1);
+  // NormalBlending + subtle glow so text stays sharp and readable
+  const forgeTex  = makeGlowText({ text:"FORGE", font:"900 148px Impact,'Arial Black',sans-serif", color:"#ffaa22", glow:"#ff4400", cw:1024, ch:300, layers:5, shadowBlur:18 });
+  const forgeMat  = new THREE.MeshBasicMaterial({ map:forgeTex, transparent:true, opacity:0, blending:THREE.NormalBlending, depthWrite:false });
+  const forgeMesh = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 1.62), forgeMat);
+  forgeMesh.position.set(0, 0.85, 0); forgeMesh.scale.set(2.8, 2.8, 1);
 
-  const arenaTex  = makeGlowText({ text:"ARENA", font:"900 108px Impact,'Arial Black',sans-serif", color:"#ffd700", glow:"#ff6600", cw:1024, ch:240, layers:12, shadowBlur:45 });
-  const arenaMat  = new THREE.MeshBasicMaterial({ map:arenaTex, transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false });
-  const arenaMesh = new THREE.Mesh(new THREE.PlaneGeometry(5.0, 1.32), arenaMat);
+  const arenaTex  = makeGlowText({ text:"ARENA", font:"900 128px Impact,'Arial Black',sans-serif", color:"#ffe044", glow:"#ff7700", cw:1024, ch:260, layers:5, shadowBlur:16 });
+  const arenaMat  = new THREE.MeshBasicMaterial({ map:arenaTex, transparent:true, opacity:0, blending:THREE.NormalBlending, depthWrite:false });
+  const arenaMesh = new THREE.Mesh(new THREE.PlaneGeometry(5.0, 1.42), arenaMat);
   arenaMesh.position.set(0, -0.95, 0);
   scene.add(forgeMesh, arenaMesh);
 
@@ -371,7 +373,8 @@ async function runThreeIntro(
   flashMesh.position.z = 6;
   scene.add(flashMesh);
 
-  const T1 = 3000, T2 = 5000;
+  // Phase 1: 6s (SPHERE HQ), Phase 2: 4s (FORGE ARENA), total 10s
+  const T1 = 6000, T2 = 10000;
   let elapsed = 0, rafId = 0, done = false, lastTime = performance.now();
 
   function animateFire() {
@@ -427,9 +430,13 @@ async function runThreeIntro(
         mesh.rotation.z  = Math.sin(t*0.0009+ri)*0.18;
       });
 
-      sphereHQMat.opacity = easeOut(invLerp(1800,2500,t));
-      presentsMat.opacity = easeOut(invLerp(2200,2800,t))*0.75;
-      bloom.strength = range(t, 0, 1600, 0.5, 2.9);
+      // Fade in text early, hold visible across the full 6s window
+      sphereHQMat.opacity = easeOut(invLerp(1800,2800,t));
+      presentsMat.opacity = easeOut(invLerp(2400,3200,t))*0.8;
+      // Bloom builds then settles — stays readable
+      bloom.strength = t < 1600
+        ? range(t, 0, 1600, 0.4, 1.8)
+        : lerp(1.8, 1.2, easeOut(invLerp(1600, 3500, t)));
 
     } else {
       const ft = t - T1;
@@ -452,25 +459,29 @@ async function runThreeIntro(
       }
 
       animateFire();
-      fireMat.opacity = easeOut(invLerp(80,900,ft))*0.9;
+      fireMat.opacity = easeOut(invLerp(80, 1400, ft)) * 0.75;
 
-      const fp = easeOut(invLerp(60,750,ft));
+      // FORGE zooms in over 1.5s (was 0.7s)
+      const fp = easeOut(invLerp(60, 1500, ft));
       forgeMat.opacity = fp;
-      forgeMesh.scale.set(lerp(2.8,1,fp), lerp(2.8,1,fp), 1);
+      forgeMesh.scale.set(lerp(2.8, 1, fp), lerp(2.8, 1, fp), 1);
 
-      arenaMat.opacity    = easeOut(invLerp(650,1350,ft));
-      arenaMesh.position.y= lerp(-2.2,-0.95,easeOut(invLerp(650,1350,ft)));
+      // ARENA rises in after FORGE settles
+      arenaMat.opacity     = easeOut(invLerp(1200, 2400, ft));
+      arenaMesh.position.y = lerp(-2.2, -0.95, easeOut(invLerp(1200, 2400, ft)));
 
-      const lp = easeOut(invLerp(1050,1700,ft));
-      lineMatL.opacity = lp*0.9; lineMatR.opacity = lp*0.9;
+      // Lines extend last
+      const lp = easeOut(invLerp(2000, 3400, ft));
+      lineMatL.opacity = lp * 0.9; lineMatR.opacity = lp * 0.9;
       lineL.scale.x = lp; lineR.scale.x = lp;
 
-      bloom.strength = lerp(4.5,2.2,easeOut(invLerp(0,900,ft)));
+      // Much lower bloom so text stays readable — fire particles still glow
+      bloom.strength = lerp(0.8, 0.45, easeOut(invLerp(0, 1600, ft)));
 
-      if (t >= T2 && !done) { done=true; onComplete?.(); }
+      if (t >= T2 && !done) { done = true; onComplete?.(); }
       if (done) {
         animateFire();
-        forgeMat.opacity=1; arenaMat.opacity=1; fireMat.opacity=0.9; bloom.strength=2.2;
+        forgeMat.opacity = 1; arenaMat.opacity = 1; fireMat.opacity = 0.75; bloom.strength = 0.45;
       }
     }
     composer.render();

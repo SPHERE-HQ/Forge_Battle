@@ -2,14 +2,18 @@ import { useState, useEffect, useCallback } from "react";
 import IntroScene from "./IntroScene";
 import NicknameForm from "./NicknameForm";
 import MainMenu from "./MainMenu";
+import HomeScene from "./scenes/HomeScene";
 import { SettingsProvider } from "./context/SettingsContext";
+import { CurrencyProvider } from "./context/CurrencyContext";
 import { loadPlayer, PlayerData } from "./types/player";
 
-type Scene = "intro" | "nickname" | "menu";
+type GameMode = "offline" | "online" | "lan";
+type Scene    = "intro" | "nickname" | "menu" | "home";
 
 function GameRoot() {
-  const [scene, setScene]   = useState<Scene>("intro");
+  const [scene,  setScene]  = useState<Scene>("intro");
   const [player, setPlayer] = useState<PlayerData | null>(null);
+  const [mode,   setMode]   = useState<GameMode>("offline");
 
   useEffect(() => {
     const lockOrientation = async () => {
@@ -40,21 +44,28 @@ function GameRoot() {
     setScene("menu");
   }, []);
 
-  const handleSelectMode = useCallback((mode: "offline" | "online" | "lan") => {
-    // TODO: transition to game scene
-    console.log("Mode selected:", mode);
+  const handleSelectMode = useCallback((selected: GameMode) => {
+    setMode(selected);
+    setScene("home");
   }, []);
 
-  if (scene === "intro")                return <IntroScene onComplete={handleIntroComplete} />;
-  if (scene === "nickname")             return <NicknameForm onSubmit={handleNicknameSubmit} />;
-  if (scene === "menu" && player)       return <MainMenu player={player} onSelectMode={handleSelectMode} />;
+  const handleBattle = useCallback(() => {
+    // TODO: transition to battle/game scene
+  }, []);
+
+  if (scene === "intro")                        return <IntroScene onComplete={handleIntroComplete} />;
+  if (scene === "nickname")                     return <NicknameForm onSubmit={handleNicknameSubmit} />;
+  if (scene === "menu"   && player)             return <MainMenu player={player} onSelectMode={handleSelectMode} />;
+  if (scene === "home"   && player)             return <HomeScene player={player} mode={mode} onBattle={handleBattle} />;
   return null;
 }
 
 export default function App() {
   return (
     <SettingsProvider>
-      <GameRoot />
+      <CurrencyProvider>
+        <GameRoot />
+      </CurrencyProvider>
     </SettingsProvider>
   );
 }

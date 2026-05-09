@@ -289,21 +289,24 @@ export default function SettingsPanel({ player, onClose }: Props) {
                   boxShadow: settings.theme === "light" ? "0 0 16px rgba(0,100,255,0.2)" : "none",
                 }}
               >
-                {/* Light/Kenney preview swatch */}
+                {/* Dark Blue preview swatch */}
                 <div style={{
                   width: "100%", height: "clamp(36px, 8vw, 52px)",
                   borderRadius: 2,
-                  backgroundImage: "url('/assets/kenney/button_square_header_large_rectangle.png')",
-                  backgroundSize: "cover", backgroundPosition: "center",
-                  border: "1px solid rgba(50,150,255,0.5)",
+                  background: "radial-gradient(ellipse at 40% 40%, #0c1e45 0%, #050510 80%)",
+                  border: "1px solid rgba(50,150,255,0.45)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                }} />
+                  gap: 4,
+                }}>
+                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#0088ff", boxShadow: "0 0 8px #0055ff" }} />
+                  <div style={{ width: 20, height: 3, background: "#0088ff", borderRadius: 1, opacity: 0.8 }} />
+                </div>
                 <div style={{
                   fontSize: "clamp(9px, 2vw, 11px)",
                   color: settings.theme === "light" ? "#66ccff" : "rgba(255,255,255,0.3)",
                   fontFamily: FONT, letterSpacing: "0.12em",
                   transition: "color 0.15s",
-                }}>KENNEY</div>
+                }}>DARK BLUE</div>
               </button>
             </div>
           </div>

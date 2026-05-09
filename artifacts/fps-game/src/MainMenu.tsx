@@ -69,7 +69,7 @@ export default function MainMenu({ player, onSelectMode }: Props) {
     cardActiveBorderHover:"rgba(80,200,255,0.8)",
     cardActiveBorderTop:  "#0088ff",
     cardActiveBorderTopHover: "#44aaff",
-    cardActiveImage:      "url('/assets/kenney/button_square_header_large_rectangle.png')",
+    cardActiveImage:      "none",
     cardActiveShadow:     "0 0 36px rgba(0,100,255,0.28), inset 0 1px 0 rgba(100,200,255,0.12)",
     cardActiveBaseShadow: "0 0 16px rgba(0,80,255,0.10)",
     cardActiveLabelColor: "#fff",

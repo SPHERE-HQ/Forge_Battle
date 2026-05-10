@@ -10,7 +10,7 @@ export const CURRENCY_VRX_NAME   = "Vyrox";
 export const CURRENCY_ATHS_NAME  = "Aetheris";
 
 // ─── Asset paths ──────────────────────────────────────────────────────────────
-export const CHARACTER_MODEL_PATH     = "/assets/characters/andromeda.glb"; // kept for backward compat
+export const CHARACTER_MODEL_PATH     = "/assets/characters/andromeda.glb";
 export const CHARACTER_MODEL_SPECTER  = "/assets/characters/andromeda.glb";
 export const CHARACTER_MODEL_FIGHTER  = "/assets/characters/fighter.glb";
 export const CHARACTER_MODEL_MEDIC    = "/assets/characters/medic.glb";
@@ -30,9 +30,10 @@ export const PANEL_SLIDE_MS = 280;
 export const FADE_IN_MS     = 320;
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
-export const STORAGE_KEY_PLAYER   = "forgeArena_player";
-export const STORAGE_KEY_SETTINGS = "forgeArena_settings";
-export const STORAGE_KEY_CURRENCY = "forgeArena_currency";
+export const STORAGE_KEY_PLAYER    = "forgeArena_player";
+export const STORAGE_KEY_SETTINGS  = "forgeArena_settings";
+export const STORAGE_KEY_CURRENCY  = "forgeArena_currency";
+export const STORAGE_KEY_INVENTORY = "forgeArena_inventory";
 
 // ─── Character IDs ────────────────────────────────────────────────────────────
 export const CHARACTER_ID_SPECTER  = "specter"  as const;
@@ -78,7 +79,7 @@ export interface SkillDef {
   readonly name:         string;
   readonly description:  string;
   readonly cooldownSec:  number;
-  readonly durationSec?: number; // optional — skill has an active duration window
+  readonly durationSec?: number;
   readonly icon:         string;
 }
 
@@ -92,6 +93,206 @@ export interface CharacterDef {
   readonly modelPath:   string;
   readonly skills:      readonly SkillDef[];
 }
+
+// ─── Character lore & stats (separate from core def for extensibility) ────────
+export interface CharacterStats {
+  readonly hp:     number; // 0–100
+  readonly speed:  number; // 0–100
+  readonly armor:  number; // 0–100
+  readonly power:  number; // 0–100 (skill potency)
+}
+
+export interface CharacterBio {
+  readonly lore:     string;
+  readonly origin:   string;
+  readonly stats:    CharacterStats;
+  readonly skins:    readonly SkinDef[];
+}
+
+export interface SkinDef {
+  readonly id:       string;
+  readonly name:     string;
+  readonly rarity:   "common" | "rare" | "epic" | "legendary";
+  readonly unlocked: boolean;
+  readonly modelPath?: string; // override model when skin is equipped (future)
+}
+
+export const CHARACTER_BIOS: Record<CharacterId, CharacterBio> = {
+  specter: {
+    lore:   "Agen bayangan yang identitasnya dirahasiakan bahkan dari komandan tertinggi. ANDROMEDA beroperasi di luar protokol standar — muncul, menyerang, lenyap. Tidak ada yang pernah melihat wajah aslinya.",
+    origin: "Asal: Tidak Diketahui · Unit: PHANTOM DIVISION",
+    stats:  { hp: 72, speed: 95, armor: 55, power: 90 },
+    skins: [
+      { id: "default",  name: "DEFAULT",      rarity: "common",    unlocked: true  },
+      { id: "phantom",  name: "PHANTOM",       rarity: "rare",      unlocked: false },
+      { id: "eclipse",  name: "ECLIPSE",       rarity: "epic",      unlocked: false },
+      { id: "void",     name: "VOID",          rarity: "legendary", unlocked: false },
+    ],
+  },
+  fighter: {
+    lore:   "Prajurit garis depan yang dibentuk oleh ratusan medan pertempuran. FIGHTER tidak mengenal rasa takut — hanya maju, terus maju. Armor-nya adalah tameng tim, tubuhnya adalah senjata.",
+    origin: "Asal: VANGUARD CORPS · Unit: IRON BATTALION",
+    stats:  { hp: 100, speed: 65, armor: 100, power: 75 },
+    skins: [
+      { id: "default",   name: "DEFAULT",       rarity: "common",    unlocked: true  },
+      { id: "warfront",  name: "WARFRONT",       rarity: "rare",      unlocked: false },
+      { id: "titanfall", name: "TITANFALL",      rarity: "epic",      unlocked: false },
+      { id: "berserker", name: "BERSERKER",      rarity: "legendary", unlocked: false },
+    ],
+  },
+  medic: {
+    lore:   "Dokter lapangan yang menyelamatkan nyawa di bawah hujan peluru. MEDIC membuktikan bahwa kemampuan menyembuhkan sama mematikannya dengan senjata. Tanpa dia, tim adalah angka.",
+    origin: "Asal: FIELD MEDICAL CORPS · Unit: LIFELINE SQUAD",
+    stats:  { hp: 80, speed: 85, armor: 60, power: 88 },
+    skins: [
+      { id: "default",  name: "DEFAULT",       rarity: "common",    unlocked: true  },
+      { id: "trauma",   name: "TRAUMA",         rarity: "rare",      unlocked: false },
+      { id: "guardian", name: "GUARDIAN",       rarity: "epic",      unlocked: false },
+      { id: "lifeline", name: "LIFELINE",       rarity: "legendary", unlocked: false },
+    ],
+  },
+  engineer: {
+    lore:   "Ahli teknologi tempur yang bisa merakit senjata dari puing-puing. ENGINEER mengubah situasi mustahil menjadi keunggulan taktis. Otaknya adalah senjata paling berbahaya di medan tempur.",
+    origin: "Asal: TECH CORPS · Unit: FORGE DIVISION",
+    stats:  { hp: 85, speed: 75, armor: 75, power: 82 },
+    skins: [
+      { id: "default",   name: "DEFAULT",       rarity: "common",    unlocked: true  },
+      { id: "blueprint", name: "BLUEPRINT",      rarity: "rare",      unlocked: false },
+      { id: "overclk",   name: "OVERCLOCK",      rarity: "epic",      unlocked: false },
+      { id: "archon",    name: "ARCHON",         rarity: "legendary", unlocked: false },
+    ],
+  },
+};
+
+// ─── Weapon definitions ───────────────────────────────────────────────────────
+export type WeaponType    = "pistol" | "smg" | "ar" | "shotgun" | "sniper" | "lmg" | "heavy";
+export type WeaponRarity  = "common" | "uncommon" | "rare" | "epic";
+
+export interface WeaponAttachment {
+  readonly slot:     "scope" | "grip" | "magazine" | "muzzle" | "stock";
+  readonly name:     string;
+  readonly unlocked: boolean;
+}
+
+export interface WeaponDef {
+  readonly id:          string;
+  readonly name:        string;
+  readonly type:        WeaponType;
+  readonly rarity:      WeaponRarity;
+  readonly icon:        string;
+  readonly description: string;
+  readonly stats: {
+    readonly damage:   number; // 0–100
+    readonly ammo:     number; // mag size
+    readonly range:    number; // 0–100
+    readonly fireRate: number; // 0–100
+    readonly handling: number; // 0–100
+  };
+  readonly attachments: readonly WeaponAttachment[];
+}
+
+export const WEAPONS: readonly WeaponDef[] = [
+  {
+    id:          "m9_pistol",
+    name:        "M9 PISTOL",
+    type:        "pistol",
+    rarity:      "common",
+    icon:        "🔫",
+    description: "Pistol semi-otomatis standar militer. Andal, ringan, mudah dibawa. Pilihan utama sebagai senjata cadangan.",
+    stats:       { damage: 35, ammo: 15, range: 45, fireRate: 55, handling: 90 },
+    attachments: [
+      { slot: "scope",    name: "Red Dot",     unlocked: false },
+      { slot: "muzzle",   name: "Silencer",    unlocked: false },
+      { slot: "magazine", name: "Extended",    unlocked: false },
+    ],
+  },
+  {
+    id:          "mp5_smg",
+    name:        "MP5 SMG",
+    type:        "smg",
+    rarity:      "common",
+    icon:        "🔫",
+    description: "Submachine gun legendaris dengan recoil rendah dan laju tembak tinggi. Cocok untuk pertempuran jarak dekat.",
+    stats:       { damage: 40, ammo: 30, range: 40, fireRate: 80, handling: 80 },
+    attachments: [
+      { slot: "scope",    name: "Holo Sight",  unlocked: false },
+      { slot: "grip",     name: "Foregrip",    unlocked: false },
+      { slot: "muzzle",   name: "Compensator", unlocked: false },
+      { slot: "magazine", name: "Drum Mag",    unlocked: false },
+    ],
+  },
+  {
+    id:          "m4_ar",
+    name:        "M4A1 ASSAULT RIFLE",
+    type:        "ar",
+    rarity:      "uncommon",
+    icon:        "🔫",
+    description: "Assault rifle serba guna dengan keseimbangan sempurna antara damage, akurasi, dan laju tembak.",
+    stats:       { damage: 55, ammo: 30, range: 70, fireRate: 70, handling: 70 },
+    attachments: [
+      { slot: "scope",    name: "ACOG",        unlocked: false },
+      { slot: "grip",     name: "Angled Grip", unlocked: false },
+      { slot: "muzzle",   name: "Flash Hider", unlocked: false },
+      { slot: "magazine", name: "Extended",    unlocked: false },
+      { slot: "stock",    name: "Tactical",    unlocked: false },
+    ],
+  },
+  {
+    id:          "spas12_shotgun",
+    name:        "SPAS-12 SHOTGUN",
+    type:        "shotgun",
+    rarity:      "uncommon",
+    icon:        "🔫",
+    description: "Shotgun pump-action dengan daya henti luar biasa. Satu tembakan cukup untuk mengubah keseimbangan pertempuran.",
+    stats:       { damage: 88, ammo: 8, range: 25, fireRate: 25, handling: 55 },
+    attachments: [
+      { slot: "muzzle",   name: "Choke",       unlocked: false },
+      { slot: "stock",    name: "Folding",      unlocked: false },
+    ],
+  },
+  {
+    id:          "awm_sniper",
+    name:        "AWM SNIPER",
+    type:        "sniper",
+    rarity:      "rare",
+    icon:        "🎯",
+    description: "Sniper rifle bolt-action paling mematikan di kelasnya. Satu peluru, satu eliminasi — dari jarak yang tidak bisa dibayangkan.",
+    stats:       { damage: 98, ammo: 5, range: 100, fireRate: 12, handling: 40 },
+    attachments: [
+      { slot: "scope",    name: "8x Scope",    unlocked: false },
+      { slot: "muzzle",   name: "Suppressor",  unlocked: false },
+      { slot: "stock",    name: "Precision",   unlocked: false },
+    ],
+  },
+  {
+    id:          "m249_lmg",
+    name:        "M249 LMG",
+    type:        "lmg",
+    rarity:      "rare",
+    icon:        "🔫",
+    description: "Light machine gun dengan kapasitas amunisi masif. Diciptakan untuk fire suppression — biarkan peluru yang bicara.",
+    stats:       { damage: 60, ammo: 100, range: 60, fireRate: 85, handling: 30 },
+    attachments: [
+      { slot: "scope",    name: "Holo",        unlocked: false },
+      { slot: "grip",     name: "Bipod",       unlocked: false },
+    ],
+  },
+  {
+    id:          "rpg7_heavy",
+    name:        "RPG-7",
+    type:        "heavy",
+    rarity:      "epic",
+    icon:        "💥",
+    description: "Peluncur roket anti-tank yang bisa meratakan apapun dalam radius ledakannya. Amunisi langka, dampaknya tidak.",
+    stats:       { damage: 100, ammo: 1, range: 80, fireRate: 5, handling: 20 },
+    attachments: [
+      { slot: "scope",    name: "Thermal",     unlocked: false },
+    ],
+  },
+];
+
+// ─── Starter weapon IDs (owned by all players from the start) ─────────────────
+export const STARTER_WEAPON_IDS = ["m9_pistol", "mp5_smg", "m4_ar"] as const;
 
 // ─── Character roster ─────────────────────────────────────────────────────────
 export const CHARACTERS: readonly CharacterDef[] = [

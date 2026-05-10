@@ -108,6 +108,8 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelLoaded, setModelLoaded]   = useState(false);
 
+  const selectedCharacter = CHARACTERS.find(c => c.id === characterId) ?? CHARACTERS[0];
+
   const handleMenuTap = useCallback((id: MenuId) => {
     if (id === "store") setStoreOpen(true);
   }, []);

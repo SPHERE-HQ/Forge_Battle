@@ -10,7 +10,7 @@ import { loadPlayer, PlayerData } from "./types/player";
 import { CHARACTER_ID_SPECTER, type CharacterId } from "./constants/game";
 
 type GameMode = "offline" | "online" | "lan";
-type Scene    = "intro" | "nickname" | "menu" | "prebattle" | "home";
+type Scene    = "intro" | "nickname" | "menu" | "home" | "prebattle";
 
 function GameRoot() {
   const [scene,       setScene]       = useState<Scene>("intro");
@@ -47,29 +47,33 @@ function GameRoot() {
     setScene("menu");
   }, []);
 
+  // Menu → Home (lobby)
   const handleSelectMode = useCallback((selected: GameMode) => {
     setMode(selected);
+    setScene("home");
+  }, []);
+
+  // Home BATTLE button → PreBattle (hero selection)
+  const handleBattle = useCallback(() => {
     setScene("prebattle");
   }, []);
 
+  // PreBattle confirm → back to Home with chosen hero (until Battle scene is ready)
   const handlePreBattleConfirm = useCallback((charId: CharacterId) => {
     setCharacterId(charId);
     setScene("home");
   }, []);
 
+  // PreBattle back → Home (not menu)
   const handlePreBattleBack = useCallback(() => {
-    setScene("menu");
-  }, []);
-
-  const handleBattle = useCallback(() => {
-    // TODO: transition to battle scene
+    setScene("home");
   }, []);
 
   if (scene === "intro")                       return <IntroScene onComplete={handleIntroComplete} />;
   if (scene === "nickname")                    return <NicknameForm onSubmit={handleNicknameSubmit} />;
   if (scene === "menu"      && player)         return <MainMenu player={player} onSelectMode={handleSelectMode} />;
-  if (scene === "prebattle" && player)         return <PreBattleScene player={player} mode={mode} onConfirm={handlePreBattleConfirm} onBack={handlePreBattleBack} />;
   if (scene === "home"      && player)         return <HomeScene player={player} mode={mode} characterId={characterId} onBattle={handleBattle} />;
+  if (scene === "prebattle" && player)         return <PreBattleScene player={player} mode={mode} onConfirm={handlePreBattleConfirm} onBack={handlePreBattleBack} />;
   return null;
 }
 

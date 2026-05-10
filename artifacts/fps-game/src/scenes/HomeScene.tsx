@@ -5,6 +5,8 @@ import { useCurrency } from "../context/CurrencyContext";
 import Character3D from "./Character3D";
 import StorePanel from "./StorePanel";
 import SettingsPanel from "../SettingsPanel";
+import CharacterPanel from "./CharacterPanel";
+import InventoryPanel from "./InventoryPanel";
 import { useBGM } from "../hooks/useBGM";
 import {
   FONT_PRIMARY,
@@ -71,8 +73,8 @@ function getThemeTokens(isDark: boolean) {
 
 // ─── Left sidebar menu items ───────────────────────────────────────────────────
 const LEFT_MENU = [
-  { id: "inventory",   icon: "🎒", label: "INVENTORY",  soon: true  },
-  { id: "character",   icon: "🧍", label: "CHARACTER",  soon: true  },
+  { id: "inventory",   icon: "🎒", label: "INVENTORY",  soon: false },
+  { id: "character",   icon: "🧍", label: "CHARACTER",  soon: false },
   { id: "mission",     icon: "📋", label: "MISSION",    soon: true  },
 ] as const;
 
@@ -92,9 +94,9 @@ const MODE_LABELS: Record<"offline" | "online" | "lan", string> = {
 };
 
 interface Props {
-  player:  PlayerData;
-  mode:    "offline" | "online" | "lan";
-  onBattle: () => void;
+  player:      PlayerData;
+  mode:        "offline" | "online" | "lan";
+  onBattle:    () => void;
   characterId: CharacterId;
 }
 
@@ -104,14 +106,18 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
   const tk                   = getThemeTokens(isDark);
   useBGM(settings.bgmTrack, settings.bgmVolume);
 
-  const [storeOpen, setStoreOpen]       = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modelLoaded, setModelLoaded]   = useState(false);
+  const [storeOpen,     setStoreOpen]     = useState(false);
+  const [settingsOpen,  setSettingsOpen]  = useState(false);
+  const [characterOpen, setCharacterOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [modelLoaded,   setModelLoaded]   = useState(false);
 
   const selectedCharacter = CHARACTERS.find(c => c.id === characterId) ?? CHARACTERS[0];
 
   const handleMenuTap = useCallback((id: MenuId) => {
-    if (id === "store") setStoreOpen(true);
+    if (id === "store")     setStoreOpen(true);
+    if (id === "character") setCharacterOpen(true);
+    if (id === "inventory") setInventoryOpen(true);
   }, []);
 
   const { currency } = useCurrency();
@@ -130,7 +136,7 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
         background: tk.gradient,
       }} />
 
-      {/* ── Character 3D canvas (fills entire center column) ── */}
+      {/* ── Character 3D canvas ── */}
       <div style={{
         position: "absolute",
         top: TOPBAR_H, bottom: BOTTOMBAR_H,
@@ -139,11 +145,14 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
         opacity: modelLoaded ? 1 : 0,
         transition: `opacity ${FADE_IN_MS}ms ease`,
       }}>
-        <Character3D theme={settings.theme} onLoaded={() => setModelLoaded(true)}
-            modelPath={selectedCharacter.modelPath} />
+        <Character3D
+          theme={settings.theme}
+          onLoaded={() => setModelLoaded(true)}
+          modelPath={selectedCharacter.modelPath}
+        />
       </div>
 
-      {/* Loading shimmer while model loads */}
+      {/* Loading shimmer */}
       {!modelLoaded && (
         <div style={{
           position: "absolute",
@@ -161,14 +170,12 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
         </div>
       )}
 
-      {/* ── UI layer (flex column on top of everything) ── */}
+      {/* ── UI layer ── */}
       <div style={{
         position: "absolute", inset: 0, zIndex: 10,
         display: "flex", flexDirection: "column",
         pointerEvents: "none",
       }}>
-
-        {/* ══ TOP BAR ══════════════════════════════════════════════════════════ */}
         <TopBar
           player={player}
           vrx={currency.vrx}
@@ -178,25 +185,19 @@ export default function HomeScene({ player, mode, onBattle, characterId }: Props
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        {/* ══ MIDDLE ROW ═══════════════════════════════════════════════════════ */}
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-
-          {/* Left sidebar */}
           <SideBar side="left" items={LEFT_MENU} isDark={isDark} tk={tk} onTap={handleMenuTap} />
-
-          {/* Center spacer — 3D canvas shows through */}
           <div style={{ flex: 1 }} />
-
-          {/* Right sidebar */}
           <SideBar side="right" items={RIGHT_MENU} isDark={isDark} tk={tk} onTap={handleMenuTap} />
         </div>
 
-        {/* ══ BOTTOM BAR ═══════════════════════════════════════════════════════ */}
         <BottomBar mode={mode} isDark={isDark} tk={tk} onBattle={onBattle} />
       </div>
 
-      {/* ── Panels (outside pointer-events:none layer) ── */}
-      <StorePanel open={storeOpen} onClose={() => setStoreOpen(false)} />
+      {/* ── Panels ── */}
+      <StorePanel     open={storeOpen}     onClose={() => setStoreOpen(false)} />
+      <CharacterPanel open={characterOpen} onClose={() => setCharacterOpen(false)} activeCharacterId={characterId} />
+      <InventoryPanel open={inventoryOpen} onClose={() => setInventoryOpen(false)} />
       {settingsOpen && <SettingsPanel player={player} onClose={() => setSettingsOpen(false)} />}
 
       {/* ── Global keyframes ── */}
@@ -236,9 +237,7 @@ function TopBar({ player, vrx, aths, isDark, tk, onOpenSettings }: TopBarProps) 
       pointerEvents: "auto",
       gap: "clamp(8px,1.5vw,16px)",
     }}>
-      {/* Player info */}
       <div style={{ display: "flex", alignItems: "center", gap: "clamp(6px,1.2vw,12px)" }}>
-        {/* Settings / avatar button */}
         <button
           onClick={onOpenSettings}
           style={{
@@ -277,7 +276,6 @@ function TopBar({ player, vrx, aths, isDark, tk, onOpenSettings }: TopBarProps) 
         </div>
       </div>
 
-      {/* Currency display */}
       <div style={{ display: "flex", alignItems: "center", gap: "clamp(6px,1.2vw,12px)" }}>
         <CurrencyBadge icon="💎" label={CURRENCY_VRX_LABEL}  value={vrx}  color="#44ccff" tk={tk} />
         <CurrencyBadge icon="✨" label={CURRENCY_ATHS_LABEL} value={aths} color={tk.accent} tk={tk} />

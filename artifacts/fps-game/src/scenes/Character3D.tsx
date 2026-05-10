@@ -11,7 +11,7 @@ const CAMERA_TARGET_Y     = 0.85;
 const TARGET_MODEL_HEIGHT = 2.1;
 const PIXEL_RATIO_CAP     = 2;
 
-// ─── Lighting constants ───────────────────────────────────────────────────────
+// ─── Lighting ─────────────────────────────────────────────────────────────────
 const AMBIENT_INTENSITY = 0.85;
 const KEY_INTENSITY     = 2.00;
 const RIM_INTENSITY     = 1.10;
@@ -19,33 +19,70 @@ const FILL_INTENSITY    = 0.65;
 const RIM_COLOR_DARK    = 0xff7700;
 const RIM_COLOR_LIGHT   = 0x0088ff;
 
-// ─── Robot idle: head look-around state machine ───────────────────────────────
-// Rotation sequence (radians): center → look-left → center → look-right → repeat
-const HEAD_LOOK_SEQUENCE = [0, -0.38, 0, 0.38] as const;
-const HEAD_TURN_SPEED    = 2.0;   // lerp coefficient
-const HEAD_HOLD_MIN_SEC  = 2.5;   // minimum hold time per pose
-const HEAD_HOLD_MAX_SEC  = 5.5;   // maximum hold time per pose
-const HEAD_SCAN_TILT_AMP = 0.022; // subtle X-tilt while looking sideways
-
-// ─── Robot idle: arm inspection gesture ──────────────────────────────────────
-const ARM_GESTURE_MIN_SEC = 5.0;  // minimum gap between gestures
-const ARM_GESTURE_MAX_SEC = 10.0; // maximum gap between gestures
-const ARM_RAISE_RADIANS   = 0.28; // forearm raise angle
-const ARM_GESTURE_SPEED   = 0.9;  // phase advance speed (lower = slower gesture)
-const ARM_WRIST_FLIP      = 0.30; // wrist rotation (Z-axis) — "check wrist display"
-const HEAD_ARM_GLANCE_RAD = 0.10; // head turns toward raised arm during gesture
-const HEAD_GLANCE_SPEED   = 3.0;  // lerp speed for glance offset
-
-// ─── Robot idle: spine power-hum ─────────────────────────────────────────────
-const SPINE_HUM_FREQ_CPS  = 0.35;  // cycles per second
-const SPINE_HUM_SCALE_AMP = 0.004; // scale delta — barely visible, just "alive"
-
 // ─── Delta-time cap ───────────────────────────────────────────────────────────
-const DT_CAP_SEC = 0.1; // prevent jumps when tab regains focus
+const DT_CAP_SEC = 0.1;
+
+// ─── Bone discovery: finds the first bone whose name includes any keyword ─────
+function findBone(root: THREE.Object3D, ...keywords: string[]): THREE.Object3D | null {
+  let found: THREE.Object3D | null = null;
+  root.traverse(obj => {
+    if (found) return;
+    const n = obj.name.toLowerCase();
+    if (keywords.some(k => n.includes(k))) found = obj;
+  });
+  return found;
+}
+
+// ─── Lerp helpers ─────────────────────────────────────────────────────────────
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function smoothstep(t: number) { return t * t * (3 - 2 * t); }
+// smooth arc 0→1→0 over phase 0→1
+function arc(phase: number) { return Math.sin(Math.max(0, Math.min(1, phase)) * Math.PI); }
+
+// ─── Gesture state machine ────────────────────────────────────────────────────
+type Gesture =
+  | "idle"
+  | "check_hand"
+  | "shoulder_stretch"
+  | "neck_roll"
+  | "weight_shift"
+  | "crouch";
+
+interface BoneSet {
+  head:          THREE.Object3D | null;
+  neck:          THREE.Object3D | null;
+  spine:         THREE.Object3D | null;  // lower spine / hips
+  chest:         THREE.Object3D | null;  // upper spine / chest
+  hips:          THREE.Object3D | null;
+  leftUpperArm:  THREE.Object3D | null;
+  rightUpperArm: THREE.Object3D | null;
+  leftForearm:   THREE.Object3D | null;
+  rightForearm:  THREE.Object3D | null;
+  leftHand:      THREE.Object3D | null;
+  rightHand:     THREE.Object3D | null;
+  leftThigh:     THREE.Object3D | null;
+  rightThigh:    THREE.Object3D | null;
+}
+
+interface BoneRest {
+  rx: number; ry: number; rz: number;
+}
+
+function saveRest(bone: THREE.Object3D | null): BoneRest {
+  if (!bone) return { rx: 0, ry: 0, rz: 0 };
+  return { rx: bone.rotation.x, ry: bone.rotation.y, rz: bone.rotation.z };
+}
+
+function applyRot(bone: THREE.Object3D | null, rest: BoneRest, dx: number, dy: number, dz: number) {
+  if (!bone) return;
+  bone.rotation.x = rest.rx + dx;
+  bone.rotation.y = rest.ry + dy;
+  bone.rotation.z = rest.rz + dz;
+}
 
 interface Props {
   theme:      "dark" | "light";
-  modelPath?: string;   // override the default Andromeda model
+  modelPath?: string;
   onLoaded?:  () => void;
 }
 
@@ -62,12 +99,10 @@ export default function Character3D({ theme, modelPath, onLoaded }: Props) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = false;
 
-    // ── Scene ─────────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
 
-    // ── Camera ────────────────────────────────────────────────────────────────
-    const w0     = canvas.clientWidth  || 300;
-    const h0     = canvas.clientHeight || 200;
+    const w0 = canvas.clientWidth  || 300;
+    const h0 = canvas.clientHeight || 200;
     const camera = new THREE.PerspectiveCamera(CAMERA_FOV, w0 / h0, 0.1, 100);
     camera.position.set(0, CAMERA_Y, CAMERA_Z);
     camera.lookAt(0, CAMERA_TARGET_Y, 0);
@@ -88,15 +123,26 @@ export default function Character3D({ theme, modelPath, onLoaded }: Props) {
     fillLight.position.set(1, 0, 2);
     scene.add(fillLight);
 
-    // ── Scene group ───────────────────────────────────────────────────────────
     const rootGroup = new THREE.Group();
     scene.add(rootGroup);
 
-    // ── Bone refs ─────────────────────────────────────────────────────────────
-    let headBone:    THREE.Object3D | null = null;
-    let spineBone:   THREE.Object3D | null = null;
-    let forearmBone: THREE.Object3D | null = null; // raises during gesture
-    let handBone:    THREE.Object3D | null = null;  // wrist flip during gesture
+    // ── Bone refs + rest rotations ─────────────────────────────────────────────
+    const bones: BoneSet = {
+      head: null, neck: null, spine: null, chest: null, hips: null,
+      leftUpperArm: null, rightUpperArm: null,
+      leftForearm: null,  rightForearm: null,
+      leftHand: null,     rightHand: null,
+      leftThigh: null,    rightThigh: null,
+    };
+
+    const rest: Record<keyof BoneSet, BoneRest> = {
+      head: { rx:0,ry:0,rz:0 }, neck: { rx:0,ry:0,rz:0 },
+      spine: { rx:0,ry:0,rz:0 }, chest: { rx:0,ry:0,rz:0 }, hips: { rx:0,ry:0,rz:0 },
+      leftUpperArm: { rx:0,ry:0,rz:0 }, rightUpperArm: { rx:0,ry:0,rz:0 },
+      leftForearm: { rx:0,ry:0,rz:0 }, rightForearm: { rx:0,ry:0,rz:0 },
+      leftHand: { rx:0,ry:0,rz:0 }, rightHand: { rx:0,ry:0,rz:0 },
+      leftThigh: { rx:0,ry:0,rz:0 }, rightThigh: { rx:0,ry:0,rz:0 },
+    };
 
     // ── Load model ────────────────────────────────────────────────────────────
     const loader = new GLTFLoader();
@@ -105,33 +151,41 @@ export default function Character3D({ theme, modelPath, onLoaded }: Props) {
       (gltf) => {
         const model = gltf.scene;
 
-        // Scale to fill TARGET_MODEL_HEIGHT world-units
         const rawBox    = new THREE.Box3().setFromObject(model);
         const rawHeight = rawBox.getSize(new THREE.Vector3()).y;
         if (rawHeight > 0) model.scale.setScalar(TARGET_MODEL_HEIGHT / rawHeight);
 
-        // Re-center: base at y=0, horizontally centered
         const box    = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
         model.position.x = -center.x;
         model.position.y = -box.min.y;
         model.position.z = -center.z;
 
-        // Discover bones — forearm/hand prioritised for wrist-check gesture
-        model.traverse(obj => {
-          const n = obj.name.toLowerCase();
-          if (!headBone    && n.includes("head"))                                                           headBone    = obj;
-          if (!spineBone   && (n.includes("spine") || n.includes("chest") || n.includes("torso")))         spineBone   = obj;
-          if (!forearmBone && (n.includes("forearm") || n.includes("lower_arm") || n.includes("lowerarm"))) forearmBone = obj;
-          if (!forearmBone && n.includes("arm") && !n.includes("upper"))                                   forearmBone = obj;
-          if (!handBone    && (n.includes("hand") || n.includes("wrist")))                                 handBone    = obj;
+        // ── Bone discovery (covers Mixamo, Blender, Kenney naming) ──────────
+        bones.hips          = findBone(model, "hips", "pelvis", "root");
+        bones.spine         = findBone(model, "spine");
+        bones.chest         = findBone(model, "spine1", "spine2", "chest", "torso", "upperchest");
+        bones.neck          = findBone(model, "neck");
+        bones.head          = findBone(model, "head");
+        bones.leftUpperArm  = findBone(model, "leftshoulder", "leftupperarm", "leftarm", "upperarm.l", "upper_arm.l", "l_upperarm");
+        bones.rightUpperArm = findBone(model, "rightshoulder", "rightupperarm", "rightarm", "upperarm.r", "upper_arm.r", "r_upperarm");
+        bones.leftForearm   = findBone(model, "leftforearm", "forearm.l", "lower_arm.l", "l_forearm", "lowerarm.l");
+        bones.rightForearm  = findBone(model, "rightforearm", "forearm.r", "lower_arm.r", "r_forearm", "lowerarm.r");
+        bones.leftHand      = findBone(model, "lefthand", "hand.l", "l_hand");
+        bones.rightHand     = findBone(model, "righthand", "hand.r", "r_hand");
+        bones.leftThigh     = findBone(model, "leftupleg", "thigh.l", "l_thigh", "lefthip", "leftleg");
+        bones.rightThigh    = findBone(model, "rightupleg", "thigh.r", "r_thigh", "righthip", "rightleg");
+
+        // Save rest rotations AFTER model is placed
+        (Object.keys(bones) as Array<keyof BoneSet>).forEach(key => {
+          rest[key] = saveRest(bones[key]);
         });
 
         rootGroup.add(model);
         onLoaded?.();
       },
       undefined,
-      (err) => console.error("Character3D GLB load error:", err),
+      (err) => console.error("Character3D load error:", err),
     );
 
     // ── Resize ────────────────────────────────────────────────────────────────
@@ -147,18 +201,47 @@ export default function Character3D({ theme, modelPath, onLoaded }: Props) {
     ro.observe(canvas);
     handleResize();
 
-    // ── Robot idle state ──────────────────────────────────────────────────────
-    let headCurrentY     = 0;
-    let headTargetY      = 0;
-    let headSeqIdx       = 0;
-    let headHoldTimer    = HEAD_HOLD_MIN_SEC + Math.random() * (HEAD_HOLD_MAX_SEC - HEAD_HOLD_MIN_SEC);
-    let headGlanceOffset = 0; // additive: head looks at arm during gesture
+    // ─────────────────────────────────────────────────────────────────────────
+    // Animation state
+    // ─────────────────────────────────────────────────────────────────────────
 
-    let armTimer   = ARM_GESTURE_MIN_SEC + Math.random() * (ARM_GESTURE_MAX_SEC - ARM_GESTURE_MIN_SEC);
-    let armPhase   = 0;
-    let armRunning = false;
+    // -- Breathing (always on) ------------------------------------------------
+    const BREATH_FREQ   = 0.22;  // breaths per second (~13/min)
+    const BREATH_CHEST  = 0.018; // chest X rotation amplitude
+    const BREATH_SPINE  = 0.008; // lower spine X amplitude
+    const BREATH_CAM_Y  = 0.004; // camera Y float amplitude
+    const BASE_CAM_Y    = CAMERA_Y;
 
-    // ── Render loop ───────────────────────────────────────────────────────────
+    // -- Head look (state machine) --------------------------------------------
+    // sequence: center → look-left → center → look-right
+    const HEAD_SEQ      = [0, -0.42, -0.12, 0.42, 0.12] as const;
+    const HEAD_SPEED    = 1.8;
+    const HEAD_HOLD_MIN = 2.2;
+    const HEAD_HOLD_MAX = 5.5;
+    const NECK_FOLLOW   = 0.35; // neck follows head by this fraction
+
+    let headCurY    = 0;
+    let headCurX    = 0;
+    let headTargY   = 0;
+    let headTargX   = 0;
+    let headSeqIdx  = 0;
+    let headTimer   = HEAD_HOLD_MIN + Math.random() * (HEAD_HOLD_MAX - HEAD_HOLD_MIN);
+
+    // -- Gesture state machine ------------------------------------------------
+    const GESTURE_IDLE_MIN  = 4.0;
+    const GESTURE_IDLE_MAX  = 9.0;
+    const GESTURES: Gesture[] = ["check_hand", "shoulder_stretch", "neck_roll", "weight_shift", "crouch"];
+
+    let currentGesture: Gesture = "idle";
+    let gesturePhase  = 0;
+    let gestureSpeed  = 0.5; // phase units per second
+    let gestureTimer  = GESTURE_IDLE_MIN + Math.random() * (GESTURE_IDLE_MAX - GESTURE_IDLE_MIN);
+
+    // per-gesture smoothed values (all start at 0 = rest)
+    let hipShift   = 0; // Z rotation on hips (weight shift)
+    let crouchDrop = 0; // Y position drop on hips (crouch)
+
+    // -- Render loop ----------------------------------------------------------
     let raf: number;
     let prevT = 0;
     const clock = new THREE.Clock();
@@ -169,61 +252,138 @@ export default function Character3D({ theme, modelPath, onLoaded }: Props) {
       const dt = Math.min(t - prevT, DT_CAP_SEC);
       prevT    = t;
 
-      // ── Head: look-around state machine ────────────────────────────────────
-      headCurrentY += (headTargetY - headCurrentY) * Math.min(HEAD_TURN_SPEED * dt, 1);
-      if (Math.abs(headCurrentY - headTargetY) < 0.008) {
-        headHoldTimer -= dt;
-        if (headHoldTimer <= 0) {
-          headSeqIdx    = (headSeqIdx + 1) % HEAD_LOOK_SEQUENCE.length;
-          headTargetY   = HEAD_LOOK_SEQUENCE[headSeqIdx];
-          headHoldTimer = HEAD_HOLD_MIN_SEC + Math.random() * (HEAD_HOLD_MAX_SEC - HEAD_HOLD_MIN_SEC);
+      // ── Breathing ──────────────────────────────────────────────────────────
+      const breathPhase  = t * BREATH_FREQ * Math.PI * 2;
+      const breathVal    = Math.sin(breathPhase);
+      const breathChestX = breathVal * BREATH_CHEST;
+      const breathSpineX = breathVal * BREATH_SPINE;
+      camera.position.y  = BASE_CAM_Y + breathVal * BREATH_CAM_Y;
+
+      // ── Head look state machine ────────────────────────────────────────────
+      headCurY += (headTargY - headCurY) * Math.min(HEAD_SPEED * dt, 1);
+      headCurX += (headTargX - headCurX) * Math.min(HEAD_SPEED * dt, 1);
+
+      if (Math.abs(headCurY - headTargY) < 0.006 && Math.abs(headCurX - headTargX) < 0.006) {
+        headTimer -= dt;
+        if (headTimer <= 0) {
+          headSeqIdx = (headSeqIdx + 1) % HEAD_SEQ.length;
+          headTargY  = HEAD_SEQ[headSeqIdx];
+          // slight chin tilt while looking sideways
+          headTargX  = Math.abs(headTargY) > 0.1 ? -0.04 + Math.random() * 0.06 : 0;
+          headTimer  = HEAD_HOLD_MIN + Math.random() * (HEAD_HOLD_MAX - HEAD_HOLD_MIN);
         }
       }
 
-      // ── Arm gesture: forearm raise + wrist flip + head glances down ────────
-      armTimer -= dt;
-      if (armTimer <= 0 && !armRunning) {
-        armRunning = true;
-        armPhase   = 0;
-        armTimer   = ARM_GESTURE_MIN_SEC + Math.random() * (ARM_GESTURE_MAX_SEC - ARM_GESTURE_MIN_SEC);
-      }
-
-      if (armRunning) {
-        armPhase += dt * ARM_GESTURE_SPEED;
-        // Smooth raise-hold-lower arc: sin(0→π)
-        const arc      = Math.sin(Math.min(armPhase, 1) * Math.PI);
-        // Wrist flip peaks slightly before mid-gesture (checking the display)
-        const wristArc = Math.sin(Math.min(armPhase * 1.3, 1) * Math.PI);
-
-        if (forearmBone) (forearmBone as THREE.Object3D).rotation.x = -ARM_RAISE_RADIANS * arc;
-        if (handBone)    (handBone    as THREE.Object3D).rotation.z  =  ARM_WRIST_FLIP    * wristArc;
-
-        if (armPhase >= 1) {
-          armRunning = false;
-          if (forearmBone) (forearmBone as THREE.Object3D).rotation.x = 0;
-          if (handBone)    (handBone    as THREE.Object3D).rotation.z  = 0;
+      // ── Gesture state machine ──────────────────────────────────────────────
+      if (currentGesture === "idle") {
+        gestureTimer -= dt;
+        if (gestureTimer <= 0) {
+          const pick = GESTURES[Math.floor(Math.random() * GESTURES.length)];
+          currentGesture = pick;
+          gesturePhase   = 0;
+          switch (pick) {
+            case "check_hand":       gestureSpeed = 0.55; break;
+            case "shoulder_stretch": gestureSpeed = 0.45; break;
+            case "neck_roll":        gestureSpeed = 0.50; break;
+            case "weight_shift":     gestureSpeed = 0.35; break;
+            case "crouch":           gestureSpeed = 0.40; break;
+          }
+        }
+      } else {
+        gesturePhase += dt * gestureSpeed;
+        if (gesturePhase >= 1) {
+          currentGesture = "idle";
+          gesturePhase   = 0;
+          gestureTimer   = GESTURE_IDLE_MIN + Math.random() * (GESTURE_IDLE_MAX - GESTURE_IDLE_MIN);
         }
       }
 
-      // Head glance: smoothly turns toward raised arm, then returns
-      const glanceTarget = armRunning ? HEAD_ARM_GLANCE_RAD : 0;
-      headGlanceOffset  += (glanceTarget - headGlanceOffset) * Math.min(HEAD_GLANCE_SPEED * dt, 1);
+      const gArc  = arc(gesturePhase);              // smooth 0→1→0
+      const gUp   = smoothstep(gesturePhase * 2);   // smooth 0→1 for first half
+      const gDown = 1 - smoothstep((gesturePhase - 0.5) * 2); // smooth 1→0 for second half
+      void gUp; void gDown;
 
-      if (headBone) {
-        (headBone as THREE.Object3D).rotation.y = headCurrentY + headGlanceOffset;
-        // Subtle X-tilt while looking sideways (sensor sweep feel)
-        (headBone as THREE.Object3D).rotation.x =
-          Math.sin(t * 0.7) * HEAD_SCAN_TILT_AMP * Math.abs(headCurrentY / 0.38);
+      // ── Apply all bone rotations ────────────────────────────────────────────
+
+      // Base breathing on chest + spine
+      applyRot(bones.chest, rest.chest, breathChestX, 0, 0);
+      applyRot(bones.spine, rest.spine, breathSpineX, 0, 0);
+
+      // Head + neck: look-around + gesture overrides
+      let headAddX = 0;
+      let headAddY = headCurY;
+
+      // GESTURE: check_hand — raise right forearm, look down at hand
+      if (currentGesture === "check_hand") {
+        applyRot(bones.rightForearm, rest.rightForearm, -0.60 * gArc, 0, 0);
+        applyRot(bones.rightHand,   rest.rightHand,     0.25 * gArc, 0, 0.15 * gArc);
+        headAddX += -0.12 * gArc; // look slightly down
+        headAddY = lerp(headCurY, 0.15, gArc); // glance toward raised hand
+      } else {
+        applyRot(bones.rightForearm, rest.rightForearm, 0, 0, 0);
+        applyRot(bones.rightHand,    rest.rightHand,    0, 0, 0);
       }
 
-      // ── Spine: power-hum ──────────────────────────────────────────────────
-      if (spineBone) {
-        const hum = 1 + Math.sin(t * SPINE_HUM_FREQ_CPS * Math.PI * 2) * SPINE_HUM_SCALE_AMP;
-        (spineBone as THREE.Object3D).scale.set(hum, hum, hum);
+      // GESTURE: shoulder_stretch — raise both upper arms + arch chest
+      if (currentGesture === "shoulder_stretch") {
+        applyRot(bones.leftUpperArm,  rest.leftUpperArm,  -0.15 * gArc, 0,  0.20 * gArc);
+        applyRot(bones.rightUpperArm, rest.rightUpperArm, -0.15 * gArc, 0, -0.20 * gArc);
+        applyRot(bones.chest,         rest.chest,          breathChestX - 0.08 * gArc, 0, 0);
+        headAddX += 0.06 * gArc; // look slightly up while stretching
+      } else {
+        applyRot(bones.leftUpperArm,  rest.leftUpperArm,  0, 0, 0);
+        applyRot(bones.rightUpperArm, rest.rightUpperArm, 0, 0, 0);
+      }
+
+      // GESTURE: neck_roll — slow head circle
+      if (currentGesture === "neck_roll") {
+        const angle = gesturePhase * Math.PI * 2;
+        headAddX  += Math.sin(angle) * 0.18;
+        headAddY   = Math.cos(angle) * 0.28;
+        applyRot(bones.neck, rest.neck,
+          Math.sin(angle) * 0.10,
+          Math.cos(angle) * 0.14,
+          Math.sin(angle) * 0.08
+        );
+      } else {
+        if (currentGesture !== "check_hand") {
+          applyRot(bones.neck, rest.neck, headCurX * NECK_FOLLOW, headCurY * NECK_FOLLOW, 0);
+        }
+      }
+
+      // GESTURE: weight_shift — sway hips, upper body counter-sways
+      const SHIFT_TARGET = currentGesture === "weight_shift" ? Math.sin(gesturePhase * Math.PI * 2) * 0.06 : 0;
+      hipShift += (SHIFT_TARGET - hipShift) * Math.min(3 * dt, 1);
+      applyRot(bones.hips,  rest.hips,  0, 0, hipShift);
+      applyRot(bones.spine, rest.spine, breathSpineX, 0, -hipShift * 0.4);
+
+      // GESTURE: crouch — lower hips + bend thighs
+      const CROUCH_TARGET = currentGesture === "crouch" ? gArc * 0.12 : 0;
+      crouchDrop += (CROUCH_TARGET - crouchDrop) * Math.min(3 * dt, 1);
+      if (bones.hips && crouchDrop > 0.001) {
+        bones.hips.position.y = rest.hips.rx * 0 + (bones.hips.position.y - bones.hips.position.y) * 0;
+        // Move root group down slightly
+        rootGroup.position.y = -crouchDrop;
+      } else {
+        rootGroup.position.y = 0;
+      }
+      if (currentGesture === "crouch") {
+        applyRot(bones.leftThigh,  rest.leftThigh,  0.18 * gArc, 0, 0);
+        applyRot(bones.rightThigh, rest.rightThigh, 0.18 * gArc, 0, 0);
+      } else {
+        applyRot(bones.leftThigh,  rest.leftThigh,  0, 0, 0);
+        applyRot(bones.rightThigh, rest.rightThigh, 0, 0, 0);
+      }
+
+      // Apply head final
+      applyRot(bones.head, rest.head, headCurX + headAddX, headAddY, headCurX * 0.1);
+      if (currentGesture !== "neck_roll") {
+        applyRot(bones.neck, rest.neck, headCurX * NECK_FOLLOW, headCurY * NECK_FOLLOW, 0);
       }
 
       renderer.render(scene, camera);
     };
+
     animate();
 
     return () => {

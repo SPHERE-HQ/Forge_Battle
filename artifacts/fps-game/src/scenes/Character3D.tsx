@@ -12,10 +12,10 @@ const TARGET_MODEL_HEIGHT = 2.1;
 const PIXEL_RATIO_CAP     = 2;
 
 // ─── Lighting constants ───────────────────────────────────────────────────────
-const AMBIENT_INTENSITY = 0.40;
-const KEY_INTENSITY     = 1.20;
-const RIM_INTENSITY     = 0.65;
-const FILL_INTENSITY    = 0.28;
+const AMBIENT_INTENSITY = 0.85;
+const KEY_INTENSITY     = 2.00;
+const RIM_INTENSITY     = 1.10;
+const FILL_INTENSITY    = 0.65;
 const RIM_COLOR_DARK    = 0xff7700;
 const RIM_COLOR_LIGHT   = 0x0088ff;
 

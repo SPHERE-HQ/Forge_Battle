@@ -39,33 +39,33 @@ const MODE_TAG_FONT   = "clamp(7px, 1.1vw, 10px)";
 function getThemeTokens(isDark: boolean) {
   if (isDark) {
     return {
-      pageBg:       "#080810",
-      gradient:     "radial-gradient(ellipse at 30% 60%, rgba(255,80,0,0.08) 0%, transparent 55%)",
-      hudBg:        "rgba(8,6,4,0.82)",
-      hudBorder:    "rgba(255,120,0,0.18)",
+      pageBg:       "#141628",
+      gradient:     "radial-gradient(ellipse at 30% 60%, rgba(255,100,0,0.18) 0%, transparent 55%)",
+      hudBg:        "rgba(40,44,80,0.94)",
+      hudBorder:    "rgba(255,140,0,0.45)",
       accent:       "#ff7700",
-      accentGlow:   "rgba(255,119,0,0.45)",
-      dimText:      "rgba(255,255,255,0.35)",
-      bodyText:     "rgba(255,255,255,0.80)",
+      accentGlow:   "rgba(255,140,0,0.75)",
+      dimText:      "rgba(255,255,255,0.72)",
+      bodyText:     "#ffffff",
       battleBg:     "linear-gradient(135deg, #cc4400 0%, #ff8800 100%)",
       battleShadow: "0 0 24px rgba(255,100,0,0.55), 0 4px 16px rgba(0,0,0,0.5)",
-      soonBg:       "rgba(255,255,255,0.04)",
-      soonBorder:   "rgba(255,255,255,0.08)",
+      soonBg:       "rgba(255,255,255,0.12)",
+      soonBorder:   "rgba(255,255,255,0.28)",
     };
   }
   return {
-    pageBg:       "#030510",
-    gradient:     "radial-gradient(ellipse at 70% 40%, rgba(0,100,255,0.10) 0%, transparent 55%)",
-    hudBg:        "rgba(2,5,25,0.84)",
-    hudBorder:    "rgba(0,136,255,0.20)",
+    pageBg:       "#181e3c",
+    gradient:     "radial-gradient(ellipse at 70% 40%, rgba(0,140,255,0.22) 0%, transparent 55%)",
+    hudBg:        "rgba(40,55,110,0.94)",
+    hudBorder:    "rgba(80,180,255,0.50)",
     accent:       "#0088ff",
-    accentGlow:   "rgba(0,136,255,0.45)",
-    dimText:      "rgba(180,210,255,0.38)",
-    bodyText:     "rgba(210,230,255,0.85)",
+    accentGlow:   "rgba(0,160,255,0.75)",
+    dimText:      "rgba(200,225,255,0.78)",
+    bodyText:     "#e8f4ff",
     battleBg:     "linear-gradient(135deg, #0044cc 0%, #0099ff 100%)",
     battleShadow: "0 0 24px rgba(0,120,255,0.55), 0 4px 16px rgba(0,0,0,0.5)",
-    soonBg:       "rgba(0,100,255,0.04)",
-    soonBorder:   "rgba(0,100,255,0.10)",
+    soonBg:       "rgba(0,120,255,0.14)",
+    soonBorder:   "rgba(0,140,255,0.35)",
   };
 }
 

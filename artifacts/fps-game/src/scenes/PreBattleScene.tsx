@@ -27,17 +27,17 @@ const SKILL_CD_FONT_SIZE = "clamp(7px, 1.1vw, 10px)";
 // ─── Theme helper ─────────────────────────────────────────────────────────────
 function getTokens(isDark: boolean, accent: string) {
   return {
-    pageBg:      isDark ? "#080810" : "#030510",
+    pageBg:      isDark ? "#141628" : "#181e3c",
     gradient:    isDark
-      ? `radial-gradient(ellipse at 30% 60%, ${accent}18 0%, transparent 55%)`
-      : `radial-gradient(ellipse at 70% 40%, ${accent}22 0%, transparent 55%)`,
-    hudBg:       isDark ? "rgba(8,6,4,0.85)"  : "rgba(2,5,25,0.86)",
-    hudBorder:   `${accent}30`,
-    accentBorder:`${accent}88`,
-    bodyText:    isDark ? "rgba(255,255,255,0.85)" : "rgba(210,230,255,0.88)",
-    dimText:     isDark ? "rgba(255,255,255,0.35)" : "rgba(180,210,255,0.38)",
-    cardBg:      isDark ? "rgba(255,255,255,0.04)" : "rgba(0,100,255,0.04)",
-    cardBorder:  isDark ? "rgba(255,255,255,0.08)" : "rgba(0,100,255,0.10)",
+      ? `radial-gradient(ellipse at 30% 60%, ${accent}2a 0%, transparent 55%)`
+      : `radial-gradient(ellipse at 70% 40%, ${accent}33 0%, transparent 55%)`,
+    hudBg:       isDark ? "rgba(40,44,80,0.94)" : "rgba(40,55,110,0.94)",
+    hudBorder:   `${accent}70`,
+    accentBorder:`${accent}cc`,
+    bodyText:    isDark ? "#ffffff" : "#e8f4ff",
+    dimText:     isDark ? "rgba(255,255,255,0.72)" : "rgba(200,225,255,0.78)",
+    cardBg:      isDark ? "rgba(255,255,255,0.10)" : "rgba(0,120,255,0.10)",
+    cardBorder:  isDark ? "rgba(255,255,255,0.22)" : "rgba(0,140,255,0.30)",
     accent,
   };
 }

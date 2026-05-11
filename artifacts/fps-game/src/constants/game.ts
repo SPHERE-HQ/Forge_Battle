@@ -265,16 +265,19 @@ export const WEAPONS: readonly WeaponDef[] = [
     ],
   },
   {
-    id:          "m249_lmg",
-    name:        "M249 LMG",
-    type:        "lmg",
-    rarity:      "rare",
+    id:          "ak74",
+    name:        "AK-74",
+    type:        "ar",
+    rarity:      "uncommon",
     icon:        "🔫",
-    description: "Light machine gun dengan kapasitas amunisi masif. Diciptakan untuk fire suppression — biarkan peluru yang bicara.",
-    stats:       { damage: 60, ammo: 100, range: 60, fireRate: 85, handling: 30 },
+    description: "Senapan serbu andalan pasukan Soviet yang tak lekang oleh waktu. Recoil rendah, mudah dikontrol, dan mematikan di segala jarak.",
+    stats:       { damage: 58, ammo: 30, range: 65, fireRate: 75, handling: 62 },
     attachments: [
-      { slot: "scope",    name: "Holo",        unlocked: false },
-      { slot: "grip",     name: "Bipod",       unlocked: false },
+      { slot: "scope",    name: "ACOG",        unlocked: false },
+      { slot: "grip",     name: "Foregrip",    unlocked: false },
+      { slot: "muzzle",   name: "Flash Hider", unlocked: false },
+      { slot: "magazine", name: "Extended",    unlocked: false },
+      { slot: "stock",    name: "Folding",     unlocked: false },
     ],
   },
   {
@@ -293,6 +296,59 @@ export const WEAPONS: readonly WeaponDef[] = [
 
 // ─── Starter weapon IDs (owned by all players from the start) ─────────────────
 export const STARTER_WEAPON_IDS = ["m9_pistol", "mp5_smg", "m4_ar"] as const;
+
+// ─── Weapon 3D model paths (keyed by weapon ID) ───────────────────────────────
+export const WEAPON_MODEL_PATH: Readonly<Record<string, string>> = {
+  m9_pistol:      "/assets/weapons/bodies/pistol.glb",
+  mp5_smg:        "/assets/weapons/bodies/smg.glb",
+  m4_ar:          "/assets/weapons/bodies/ar.glb",
+  ak74:           "/assets/weapons/bodies/ak74.glb",
+  spas12_shotgun: "/assets/weapons/bodies/shotgun.glb",
+  awm_sniper:     "/assets/weapons/bodies/sniper.glb",
+  rpg7_heavy:     "/assets/weapons/bodies/heavy.glb",
+};
+
+// ─── Core Box colors ──────────────────────────────────────────────────────────
+export type CoreBoxColor = "red" | "yellow" | "green" | "blue" | "purple" | "black";
+
+export interface CoreBoxMeta {
+  readonly label: string;
+  readonly emoji: string;
+  readonly hex:   string;
+}
+
+export const CORE_BOX_META: Record<CoreBoxColor, CoreBoxMeta> = {
+  red:    { label: "MERAH",  emoji: "🟥", hex: "#ff3333" },
+  yellow: { label: "KUNING", emoji: "🟨", hex: "#ffcc00" },
+  green:  { label: "HIJAU",  emoji: "🟩", hex: "#33cc66" },
+  blue:   { label: "BIRU",   emoji: "🟦", hex: "#3388ff" },
+  purple: { label: "UNGU",   emoji: "🟪", hex: "#aa44ff" },
+  black:  { label: "HITAM",  emoji: "⬛", hex: "#555566" },
+};
+
+// ─── Crafting ingredient ──────────────────────────────────────────────────────
+export interface CraftIngredient {
+  readonly color:  CoreBoxColor;
+  readonly amount: number;
+}
+
+// ─── Weapon crafting recipes (at Builder Machine) ─────────────────────────────
+export const WEAPON_RECIPES: Readonly<Record<string, readonly CraftIngredient[]>> = {
+  m9_pistol:      [{ color: "red",    amount: 1 }, { color: "yellow", amount: 1 }],
+  mp5_smg:        [{ color: "yellow", amount: 2 }, { color: "green",  amount: 1 }],
+  m4_ar:          [{ color: "blue",   amount: 2 }, { color: "red",    amount: 1 }],
+  ak74:           [{ color: "blue",   amount: 2 }, { color: "yellow", amount: 1 }],
+  spas12_shotgun: [{ color: "red",    amount: 2 }, { color: "green",  amount: 1 }],
+  awm_sniper:     [{ color: "purple", amount: 2 }, { color: "blue",   amount: 1 }],
+  rpg7_heavy:     [{ color: "black",  amount: 1 }, { color: "purple", amount: 2 }],
+};
+
+// ─── Bot teammate crafting recipe ─────────────────────────────────────────────
+export const BOT_RECIPE: readonly CraftIngredient[] = [
+  { color: "blue",   amount: 1 },
+  { color: "green",  amount: 1 },
+  { color: "yellow", amount: 1 },
+];
 
 // ─── Character roster ─────────────────────────────────────────────────────────
 export const CHARACTERS: readonly CharacterDef[] = [

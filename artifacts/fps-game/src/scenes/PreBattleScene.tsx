@@ -49,10 +49,19 @@ const MODE_LABELS: Record<"offline" | "online" | "lan", string> = {
   lan:     "LAN",
 };
 
+// ─── Battle settings options ───────────────────────────────────────────────────
+const KILL_OPTIONS  = [10, 20, 30, 50] as const;
+const TIME_OPTIONS  = [
+  { label: "3 MIN",  sec: 180  },
+  { label: "5 MIN",  sec: 300  },
+  { label: "10 MIN", sec: 600  },
+  { label: "15 MIN", sec: 900  },
+] as const;
+
 interface Props {
   player:    PlayerData;
   mode:      "offline" | "online" | "lan";
-  onConfirm: (characterId: CharacterId) => void;
+  onConfirm: (characterId: CharacterId, killLimit: number, timeLimitSec: number) => void;
   onBack:    () => void;
 }
 
@@ -63,8 +72,10 @@ export default function PreBattleScene({ player, mode, onConfirm, onBack }: Prop
 
   const isDark = settings.theme === "dark";
 
-  const [selected,    setSelected]    = useState<CharacterId>(CHARACTER_ID_SPECTER);
-  const [modelLoaded, setModelLoaded] = useState(false);
+  const [selected,      setSelected]      = useState<CharacterId>(CHARACTER_ID_SPECTER);
+  const [modelLoaded,   setModelLoaded]   = useState(false);
+  const [killLimit,     setKillLimit]     = useState<typeof KILL_OPTIONS[number]>(20);
+  const [timeLimitSec,  setTimeLimitSec]  = useState<number>(300);
 
   const selectedChar = CHARACTERS.find(c => c.id === selected)!;
   const tk           = getTokens(isDark, selectedChar.accentColor);
@@ -274,40 +285,100 @@ export default function PreBattleScene({ player, mode, onConfirm, onBack }: Prop
         </div>
       </div>
 
-      {/* ══ BOTTOM BAR — CONFIRM ═════════════════════════════════════════════ */}
+      {/* ══ BOTTOM BAR — SETTINGS + CONFIRM ════════════════════════════════ */}
       <div style={{
         position: "absolute", bottom: 0, left: 0, right: 0, height: BOTTOMBAR_H,
         zIndex: 10,
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 clamp(10px,2vw,22px)",
         background: tk.hudBg,
         borderTop: `1px solid ${tk.hudBorder}`,
         backdropFilter: "blur(6px)",
+        gap: "clamp(8px,1.5vw,16px)",
       }}>
+        {/* Kill limit */}
+        <div style={{ display: "flex", alignItems: "center", gap: "clamp(6px,1vw,10px)", flexShrink: 0 }}>
+          <span style={{
+            fontFamily: FONT_NARROW, fontSize: "clamp(7px,1vw,9px)",
+            color: tk.dimText, letterSpacing: "0.22em",
+          }}>KILL LIMIT</span>
+          {KILL_OPTIONS.map(k => (
+            <button
+              key={k}
+              onClick={() => setKillLimit(k)}
+              style={{
+                height: "clamp(26px,4.2vh,36px)",
+                padding: "0 clamp(8px,1.2vw,12px)",
+                background: killLimit === k ? `${selectedChar.accentColor}33` : "transparent",
+                border: `1px solid ${killLimit === k ? selectedChar.accentColor : tk.hudBorder}`,
+                borderRadius: 3, cursor: "pointer",
+                fontFamily: FONT_NARROW,
+                fontSize: "clamp(9px,1.3vw,11px)",
+                color: killLimit === k ? selectedChar.accentColor : tk.dimText,
+                letterSpacing: "0.1em",
+                transition: "all 0.15s",
+              }}
+            >{k}</button>
+          ))}
+        </div>
+
+        {/* Divider */}
+        <div style={{ width: 1, alignSelf: "stretch", background: tk.hudBorder, flexShrink: 0 }} />
+
+        {/* Time limit */}
+        <div style={{ display: "flex", alignItems: "center", gap: "clamp(6px,1vw,10px)", flexShrink: 0 }}>
+          <span style={{
+            fontFamily: FONT_NARROW, fontSize: "clamp(7px,1vw,9px)",
+            color: tk.dimText, letterSpacing: "0.22em",
+          }}>WAKTU</span>
+          {TIME_OPTIONS.map(t => (
+            <button
+              key={t.sec}
+              onClick={() => setTimeLimitSec(t.sec)}
+              style={{
+                height: "clamp(26px,4.2vh,36px)",
+                padding: "0 clamp(8px,1.2vw,12px)",
+                background: timeLimitSec === t.sec ? `${selectedChar.accentColor}33` : "transparent",
+                border: `1px solid ${timeLimitSec === t.sec ? selectedChar.accentColor : tk.hudBorder}`,
+                borderRadius: 3, cursor: "pointer",
+                fontFamily: FONT_NARROW,
+                fontSize: "clamp(9px,1.3vw,11px)",
+                color: timeLimitSec === t.sec ? selectedChar.accentColor : tk.dimText,
+                letterSpacing: "0.1em",
+                transition: "all 0.15s",
+              }}
+            >{t.label}</button>
+          ))}
+        </div>
+
+        {/* Divider */}
+        <div style={{ flex: 1 }} />
+
+        {/* Confirm button */}
         <button
-          onClick={() => onConfirm(selected)}
+          onClick={() => onConfirm(selected, killLimit, timeLimitSec)}
           style={{
-            height: "clamp(36px,6vh,50px)",
-            padding: "0 clamp(32px,6vw,60px)",
+            height: "clamp(34px,5.5vh,48px)",
+            padding: "0 clamp(24px,4.5vw,48px)",
             background: `linear-gradient(135deg, ${selectedChar.accentColor}cc, ${selectedChar.accentColor}88)`,
             border: `1px solid ${selectedChar.accentColor}`,
             borderRadius: 4,
             cursor: "pointer",
-            display: "flex", alignItems: "center", gap: "clamp(8px,1.4vw,14px)",
+            display: "flex", alignItems: "center", gap: "clamp(6px,1.2vw,12px)",
             transition: "transform 0.1s, box-shadow 0.2s",
             boxShadow: `0 0 20px ${selectedChar.accentColor}44`,
+            flexShrink: 0,
           }}
           onPointerDown={e => (e.currentTarget.style.transform = "scale(0.96)")}
           onPointerUp={e => (e.currentTarget.style.transform = "scale(1)")}
           onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
         >
-          <span style={{ fontSize: "clamp(14px,2.2vw,20px)" }}>⚔</span>
+          <span style={{ fontSize: "clamp(12px,2vw,18px)" }}>⚔</span>
           <span style={{
             fontFamily: FONT_PRIMARY,
-            fontSize: "clamp(12px,2.2vw,18px)",
+            fontSize: "clamp(10px,1.8vw,15px)",
             color: "#fff", letterSpacing: "0.2em",
-          }}>
-            CONFIRM HERO
-          </span>
+          }}>MULAI BATTLE</span>
         </button>
       </div>
 

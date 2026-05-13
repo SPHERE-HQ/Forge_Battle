@@ -60,7 +60,7 @@ function playAudio(src: string, volume = 0.6) {
 
 interface Props {
   config: BattleConfig;
-  onEnd:  (won: boolean) => void;
+  onEnd:  (won: boolean, kills: number) => void;
 }
 
 export default function BattleScene({ config, onEnd }: Props) {

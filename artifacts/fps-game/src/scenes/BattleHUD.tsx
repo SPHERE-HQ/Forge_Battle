@@ -32,7 +32,7 @@ function formatTime(sec: number) {
 interface Props {
   state:         BattleState;
   config:        BattleConfig;
-  onEnd:         (won: boolean) => void;
+  onEnd:         (won: boolean, kills: number) => void;
   onMobileInput: (inp: Partial<InputState>) => void;
   isMobile:      boolean;
 }
@@ -102,6 +102,14 @@ export default function BattleHUD({ state, config, onEnd, isMobile, onMobileInpu
           {isMobile && <MobileHUDControls onInput={onMobileInput} />}
         </>
       )}
+
+      {/* ── Leader bot respawn timer ─────────────────────────────────── */}
+      {isPlaying && (() => {
+        const leaderBot = state.bots.find(b => b.team === "blue" && b.role === "leader" && b.aiState === "dead");
+        return leaderBot && leaderBot.respawnTimer > 0
+          ? <LeaderRespawnTimer seconds={leaderBot.respawnTimer} />
+          : null;
+      })()}
 
       {/* ── Game Over overlay ──────────────────────────────────────────── */}
       {!isPlaying && (
@@ -331,11 +339,36 @@ function ReloadIndicator() {
   );
 }
 
+// ─── Leader Respawn Timer ─────────────────────────────────────────────────────
+function LeaderRespawnTimer({ seconds }: { seconds: number }) {
+  const s = Math.ceil(seconds);
+  return (
+    <div style={{
+      position:  "fixed", top: "clamp(60px,10vh,80px)", left: "50%",
+      transform: "translateX(-50%)", zIndex: HUD_Z,
+      display:   "flex", flexDirection: "column", alignItems: "center", gap: 2,
+      background: "rgba(0,10,30,0.75)",
+      border:     "1px solid rgba(68,136,255,0.35)",
+      borderRadius: 4, padding: "5px 14px",
+      pointerEvents: "none",
+    }}>
+      <div style={{
+        fontFamily: FONT_NARROW, fontSize: "clamp(6px,0.9vw,8px)",
+        color: "rgba(68,136,255,0.7)", letterSpacing: "0.2em",
+      }}>PEMIMPIN BOT MATI</div>
+      <div style={{
+        fontFamily: FONT_PRIMARY, fontSize: "clamp(11px,1.8vw,15px)",
+        color: "#4488ff", letterSpacing: "0.15em",
+      }}>RESPAWN {s}s</div>
+    </div>
+  );
+}
+
 // ─── Game Over Overlay ────────────────────────────────────────────────────────
 function GameOverOverlay({ state, config, onEnd }: {
   state:  BattleState;
   config: BattleConfig;
-  onEnd:  (won: boolean) => void;
+  onEnd:  (won: boolean, kills: number) => void;
 }) {
   const won = state.phase === "won";
   const [show, setShow] = useState(false);
@@ -395,8 +428,34 @@ function GameOverOverlay({ state, config, onEnd }: {
           {config.killLimit} KILL LIMIT · {formatTime(config.timeLimitSec - state.timeLeftSec)} PLAYED
         </div>
 
+        {/* VRX Reward (win only) */}
+        {won && (() => {
+          const VRX_BASE = 10, VRX_PER_K = 10;
+          const earned = VRX_BASE + state.blueKills * VRX_PER_K;
+          return (
+            <div style={{
+              display:      "flex", alignItems: "center", gap: 8,
+              background:   "rgba(255,204,0,0.10)",
+              border:       "1px solid rgba(255,204,0,0.35)",
+              borderRadius: 4, padding: "6px 18px",
+            }}>
+              <span style={{ fontSize: "clamp(14px,2vw,18px)" }}>💎</span>
+              <div>
+                <div style={{
+                  fontFamily: FONT_NARROW, fontSize: "clamp(6px,0.9vw,8px)",
+                  color: "rgba(255,204,0,0.6)", letterSpacing: "0.2em",
+                }}>REWARD VRX</div>
+                <div style={{
+                  fontFamily: FONT_PRIMARY, fontSize: "clamp(14px,2.2vw,18px)",
+                  color: "#ffcc00", letterSpacing: "0.1em",
+                }}>+{earned} VRX</div>
+              </div>
+            </div>
+          );
+        })()}
+
         <button
-          onClick={() => onEnd(won)}
+          onClick={() => onEnd(won, state.blueKills)}
           style={{
             marginTop:    "clamp(8px,1.5vh,14px)",
             height:       "clamp(40px,7vh,54px)",

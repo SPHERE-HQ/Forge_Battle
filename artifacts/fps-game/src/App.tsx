@@ -6,7 +6,7 @@ import PreBattleScene from "./scenes/PreBattleScene";
 import HomeScene from "./scenes/HomeScene";
 import BattleScene from "./scenes/BattleScene";
 import { SettingsProvider } from "./context/SettingsContext";
-import { CurrencyProvider } from "./context/CurrencyContext";
+import { CurrencyProvider, useCurrency } from "./context/CurrencyContext";
 import { loadPlayer, PlayerData } from "./types/player";
 import { CHARACTER_ID_SPECTER, STARTER_WEAPON_IDS, type CharacterId } from "./constants/game";
 import type { BattleConfig } from "./game/battleTypes";
@@ -16,6 +16,7 @@ type Scene    = "intro" | "nickname" | "menu" | "home" | "prebattle" | "battle";
 
 
 function GameRoot() {
+  const { addVrxBattle } = useCurrency();
   const [scene,        setScene]        = useState<Scene>("intro");
   const [player,       setPlayer]       = useState<PlayerData | null>(null);
   const [mode,         setMode]         = useState<GameMode>("offline");
@@ -80,10 +81,11 @@ function GameRoot() {
     setScene("home");
   }, []);
 
-  const handleBattleEnd = useCallback((_won: boolean) => {
+  const handleBattleEnd = useCallback((won: boolean, kills: number) => {
+    if (won) addVrxBattle(kills, 0);
     setBattleConfig(null);
     setScene("home");
-  }, []);
+  }, [addVrxBattle]);
 
   if (scene === "intro")                         return <IntroScene onComplete={handleIntroComplete} />;
   if (scene === "nickname")                      return <NicknameForm onSubmit={handleNicknameSubmit} />;

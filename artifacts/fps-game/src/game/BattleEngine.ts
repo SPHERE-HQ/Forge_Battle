@@ -3,7 +3,7 @@ import type {
   BotInstance, Bullet, CoreBox, KillEvent, Team, Vec3,
 } from "./battleTypes";
 import MAP_LAYOUT from "./mapLayout";
-import { WEAPONS } from "../constants/game";
+import { WEAPONS, WEAPON_RECIPES } from "../constants/game";
 
 // ─── Game constants (no magic numbers in logic below) ─────────────────────────
 const PLAYER_SPEED       = 7.0;
@@ -506,5 +506,25 @@ export class BattleEngine {
     this.state.playerMaxAmmo  = w.stats.ammo;
     this.state.isReloading    = false;
     this.reloadTimer          = 0;
+  }
+
+  // ─── Craft weapon — deduct core boxes & equip (returns true if success) ───
+  craftWeapon(weaponId: string): boolean {
+    const recipe = WEAPON_RECIPES[weaponId];
+    if (!recipe) return false;
+
+    // Check affordability
+    for (const ing of recipe) {
+      if ((this.state.playerCoreBoxes[ing.color] ?? 0) < ing.amount) return false;
+    }
+
+    // Deduct boxes
+    for (const ing of recipe) {
+      this.state.playerCoreBoxes[ing.color] =
+        (this.state.playerCoreBoxes[ing.color] ?? 0) - ing.amount;
+    }
+
+    this.equipWeapon(weaponId);
+    return true;
   }
 }

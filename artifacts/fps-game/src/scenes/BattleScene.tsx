@@ -4,6 +4,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { BattleEngine } from "../game/BattleEngine";
 import BattleHUD from "./BattleHUD";
 import MobileControls from "./MobileControls";
+import CraftingPanel from "./CraftingPanel";
+import Minimap from "./Minimap";
 import MAP_LAYOUT from "../game/mapLayout";
 import { CHARACTERS } from "../constants/game";
 import type { BattleConfig, BattleState, InputState } from "../game/battleTypes";
@@ -71,8 +73,9 @@ export default function BattleScene({ config, onEnd }: Props) {
   const keysRef    = useRef(new Set<string>());
   const endedRef   = useRef(false);
 
-  const [hudState, setHudState] = useState<BattleState | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const [hudState, setHudState]         = useState<BattleState | null>(null);
+  const [isMobile, setIsMobile]         = useState(false);
+  const [showCrafting, setShowCrafting] = useState(false);
 
   useEffect(() => { setIsMobile("ontouchstart" in window); }, []);
 
@@ -276,11 +279,18 @@ export default function BattleScene({ config, onEnd }: Props) {
 
     // ── Keyboard input ────────────────────────────────────────────────────────
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Escape") {
+        setShowCrafting(false);
+        return;
+      }
       keysRef.current.add(e.code);
-      if (e.code === "KeyE") inputRef.current.interact = true;
-      if (e.code === "KeyR") {
-        // Force reload via engine (future: expose method)
-        // For now, fire with 0 ammo triggers auto-reload
+      if (e.code === "KeyE") {
+        inputRef.current.interact = true;
+        // Toggle crafting panel when near blue machine
+        const st = engineRef.current?.state;
+        if (st?.nearMachineTeam === "blue") {
+          setShowCrafting(prev => !prev);
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -514,6 +524,14 @@ export default function BattleScene({ config, onEnd }: Props) {
     };
   }, [config]);
 
+  const handleCraftWeapon = useCallback((weaponId: string): boolean => {
+    const engine = engineRef.current;
+    if (!engine) return false;
+    const ok = engine.craftWeapon(weaponId);
+    if (ok) setShowCrafting(false);
+    return ok;
+  }, []);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000" }}>
       <canvas
@@ -528,6 +546,20 @@ export default function BattleScene({ config, onEnd }: Props) {
           onEnd={onEnd}
           onMobileInput={handleMobileInput}
           isMobile={isMobile}
+        />
+      )}
+
+      {/* Minimap */}
+      {hudState && hudState.phase === "playing" && (
+        <Minimap state={hudState} />
+      )}
+
+      {/* Crafting panel (shown when E pressed near blue machine) */}
+      {showCrafting && hudState && (
+        <CraftingPanel
+          state={hudState}
+          onCraft={handleCraftWeapon}
+          onClose={() => setShowCrafting(false)}
         />
       )}
 

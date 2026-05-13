@@ -81,6 +81,13 @@ export default function BattleScene({ config, onEnd }: Props) {
 
   const handleMobileInput = useCallback((inp: Partial<InputState>) => {
     Object.assign(inputRef.current, inp);
+    // Open crafting panel via mobile interact button when near blue machine
+    if (inp.interact === true) {
+      const st = engineRef.current?.state;
+      if (st?.nearMachineTeam === "blue") {
+        setShowCrafting(prev => !prev);
+      }
+    }
   }, []);
 
   useEffect(() => {

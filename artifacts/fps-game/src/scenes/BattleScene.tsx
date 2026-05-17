@@ -6,8 +6,11 @@ import BattleHUD from "./BattleHUD";
 import MobileControls from "./MobileControls";
 import CraftingPanel from "./CraftingPanel";
 import Minimap from "./Minimap";
+import HUDCustomizer from "./HUDCustomizer";
 import MAP_LAYOUT from "../game/mapLayout";
-import { CHARACTERS } from "../constants/game";
+import { CHARACTERS, FONT_NARROW } from "../constants/game";
+import { loadHUDSettings, saveHUDSettings } from "../game/hudSettings";
+import type { HUDSettings } from "../game/hudSettings";
 import type { BattleConfig, BattleState, InputState } from "../game/battleTypes";
 
 // ─── Three.js constants ───────────────────────────────────────────────────────
@@ -73,11 +76,18 @@ export default function BattleScene({ config, onEnd }: Props) {
   const keysRef    = useRef(new Set<string>());
   const endedRef   = useRef(false);
 
-  const [hudState, setHudState]         = useState<BattleState | null>(null);
-  const [isMobile, setIsMobile]         = useState(false);
-  const [showCrafting, setShowCrafting] = useState(false);
+  const [hudState, setHudState]           = useState<BattleState | null>(null);
+  const [isMobile, setIsMobile]           = useState(false);
+  const [showCrafting, setShowCrafting]   = useState(false);
+  const [hudSettings, setHudSettings]     = useState<HUDSettings>(loadHUDSettings);
+  const [showCustomizer, setShowCustomizer] = useState(false);
 
   useEffect(() => { setIsMobile("ontouchstart" in window); }, []);
+
+  const handleSaveHUD = useCallback((s: HUDSettings) => {
+    saveHUDSettings(s);
+    setHudSettings(s);
+  }, []);
 
   const handleMobileInput = useCallback((inp: Partial<InputState>) => {
     Object.assign(inputRef.current, inp);
@@ -597,6 +607,7 @@ export default function BattleScene({ config, onEnd }: Props) {
         <BattleHUD
           state={hudState}
           config={config}
+          hudSettings={hudSettings}
           onEnd={onEnd}
           onMobileInput={handleMobileInput}
           isMobile={isMobile}
@@ -605,7 +616,41 @@ export default function BattleScene({ config, onEnd }: Props) {
 
       {/* Minimap */}
       {hudState && hudState.phase === "playing" && (
-        <Minimap state={hudState} />
+        <Minimap state={hudState} hudSettings={hudSettings} />
+      )}
+
+      {/* HUD Customize button — visible while playing */}
+      {hudState && hudState.phase === "playing" && !showCustomizer && (
+        <button
+          onClick={() => setShowCustomizer(true)}
+          title="Atur posisi HUD"
+          style={{
+            position:     "fixed",
+            top:          "clamp(8px,1.5vh,14px)",
+            right:        "clamp(8px,1.5vw,14px)",
+            zIndex:       55,
+            width:        "clamp(28px,4vw,36px)",
+            height:       "clamp(28px,4vw,36px)",
+            borderRadius: "50%",
+            background:   "rgba(0,0,0,0.55)",
+            border:       "1px solid rgba(255,255,255,0.2)",
+            color:        "#ffffff88",
+            fontSize:     "clamp(12px,1.8vw,16px)",
+            cursor:       "pointer",
+            display:      "flex", alignItems: "center", justifyContent: "center",
+            fontFamily:   FONT_NARROW,
+          }}
+        >⚙</button>
+      )}
+
+      {/* HUD Customizer panel */}
+      {showCustomizer && (
+        <HUDCustomizer
+          settings={hudSettings}
+          isMobile={isMobile}
+          onSave={handleSaveHUD}
+          onClose={() => setShowCustomizer(false)}
+        />
       )}
 
       {/* Crafting panel (shown when E pressed near blue machine) */}

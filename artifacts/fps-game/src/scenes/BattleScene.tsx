@@ -185,13 +185,12 @@ export default function BattleScene({ config, onEnd }: Props) {
       coreBoxMeshes.set(box.id, mesh);
     }
 
-    // ── Bot meshes ────────────────────────────────────────────────────────────
+    // ── Bot meshes — capsule placeholder replaced by GLB model on load ────────
     const botMeshes = new Map<string, THREE.Group>();
-    function makeBotMesh(team: "blue" | "red") {
+    function makeBotCapsule(team: "blue" | "red") {
       const color = team === "blue" ? CLR_BLUE_BOT : CLR_RED_BOT;
       const g     = new THREE.Group();
       const mat   = new THREE.MeshLambertMaterial({ color });
-      // Body
       const body  = new THREE.Mesh(
         new THREE.CylinderGeometry(BOT_CAPSULE_R, BOT_CAPSULE_R, BOT_CAPSULE_H - BOT_CAPSULE_R * 2, 8),
         mat,
@@ -199,12 +198,10 @@ export default function BattleScene({ config, onEnd }: Props) {
       body.position.y = BOT_CAPSULE_H / 2;
       body.castShadow = true;
       g.add(body);
-      // Head
       const head = new THREE.Mesh(new THREE.SphereGeometry(BOT_CAPSULE_R, 8, 8), mat);
       head.position.y = BOT_CAPSULE_H;
       head.castShadow = true;
       g.add(head);
-      // Team indicator cone
       const cone = new THREE.Mesh(
         new THREE.ConeGeometry(0.11, 0.3, 6),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
@@ -214,10 +211,59 @@ export default function BattleScene({ config, onEnd }: Props) {
       return g;
     }
     for (const bot of engine.state.bots) {
-      const m = makeBotMesh(bot.team);
+      const m = makeBotCapsule(bot.team);
       botMeshes.set(bot.id, m);
       scene.add(m);
     }
+
+    // Replace capsule with actual GLB character model once it loads
+    function applyModelToBots(
+      gltfScene: THREE.Group,
+      team: "blue" | "red",
+    ) {
+      const color = team === "blue" ? CLR_BLUE_BOT : CLR_RED_BOT;
+      for (const bot of engine.state.bots) {
+        if (bot.team !== team) continue;
+        const group = botMeshes.get(bot.id);
+        if (!group) continue;
+        // Remove capsule placeholders
+        while (group.children.length > 0) group.remove(group.children[0]);
+        // Clone the loaded model for this bot
+        const model = gltfScene.clone(true);
+        // Normalize height to 1.8 units
+        const rawBox = new THREE.Box3().setFromObject(model);
+        const h      = rawBox.getSize(new THREE.Vector3()).y;
+        if (h > 0) model.scale.setScalar(1.8 / h);
+        const box2 = new THREE.Box3().setFromObject(model);
+        model.position.y = -box2.min.y;
+        model.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) {
+            o.castShadow    = true;
+            o.receiveShadow = true;
+          }
+        });
+        group.add(model);
+        // Re-add team indicator cone above head
+        const cone = new THREE.Mesh(
+          new THREE.ConeGeometry(0.11, 0.3, 6),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+        );
+        cone.position.y = BOT_CAPSULE_H + BOT_CAPSULE_R + 0.22;
+        group.add(cone);
+      }
+    }
+    loader.load(
+      "/assets/characters/andromeda.glb",
+      (gltf) => applyModelToBots(gltf.scene, "blue"),
+      undefined,
+      () => { /* keep capsule fallback on error */ },
+    );
+    loader.load(
+      "/assets/characters/fighter.glb",
+      (gltf) => applyModelToBots(gltf.scene, "red"),
+      undefined,
+      () => { /* keep capsule fallback on error */ },
+    );
 
     // ── Player group ──────────────────────────────────────────────────────────
     const playerGroup = new THREE.Group();
@@ -346,9 +392,10 @@ export default function BattleScene({ config, onEnd }: Props) {
     });
     ro.observe(canvas);
 
-    // ── Camera tracking vars ──────────────────────────────────────────────────
-    let camX      = MAP_LAYOUT.playerSpawn.x - 5;
-    let camZ      = MAP_LAYOUT.playerSpawn.z - 5;
+    // ── Camera tracking vars — start behind player based on spawn yaw ─────────
+    const initYaw = MAP_LAYOUT.playerSpawnYaw;
+    let camX      = MAP_LAYOUT.playerSpawn.x - Math.sin(initYaw) * CAM_DIST;
+    let camZ      = MAP_LAYOUT.playerSpawn.z - Math.cos(initYaw) * CAM_DIST;
     const lookAt  = new THREE.Vector3();
     let hudTimer  = 0;
     let bulletIdx = 0;

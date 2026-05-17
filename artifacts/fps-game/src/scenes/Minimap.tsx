@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { BattleState } from "../game/battleTypes";
 import MAP_LAYOUT from "../game/mapLayout";
+import type { HUDSettings } from "../game/hudSettings";
 
 // ─── Minimap constants ────────────────────────────────────────────────────────
 const MAP_REAL_HALF  = 54;
@@ -29,9 +30,10 @@ function toCanvas(worldX: number, worldZ: number): [number, number] {
   ];
 }
 
-interface Props { state: BattleState }
+interface Props { state: BattleState; hudSettings: HUDSettings }
 
-export default function Minimap({ state }: Props) {
+export default function Minimap({ state, hudSettings }: Props) {
+  const pos = hudSettings.minimap;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -147,21 +149,24 @@ export default function Minimap({ state }: Props) {
 
   }, [state]);
 
+  const sideLen = Math.round(MAP_SIZE_PX * pos.scale);
+
   return (
     <div style={{
       position:     "fixed",
-      bottom:       "clamp(14px,2.5vh,22px)",
-      left:         "50%",
-      transform:    "translateX(-50%)",
+      left:         `${pos.x}vw`,
+      top:          `${pos.y}vh`,
       zIndex:       48,
       borderRadius: 4,
       overflow:     "hidden",
       boxShadow:    "0 0 12px rgba(0,200,255,0.2)",
       border:       `1px solid ${CLR_BORDER}`,
+      width:        sideLen,
+      height:       sideLen,
     }}>
       <canvas
         ref={canvasRef}
-        style={{ width: MAP_SIZE_PX, height: MAP_SIZE_PX, display: "block" }}
+        style={{ width: sideLen, height: sideLen, display: "block" }}
       />
     </div>
   );

@@ -3,7 +3,7 @@ import type {
   BotInstance, Bullet, CoreBox, KillEvent, Team, Vec3,
 } from "./battleTypes";
 import MAP_LAYOUT from "./mapLayout";
-import { WEAPONS, WEAPON_RECIPES } from "../constants/game";
+import { WEAPONS, WEAPON_RECIPES, CHARACTERS, CHARACTER_BIOS } from "../constants/game";
 
 // ─── Game constants (no magic numbers in logic below) ─────────────────────────
 const PLAYER_SPEED       = 7.0;
@@ -87,6 +87,10 @@ export class BattleEngine {
   constructor(config: BattleConfig) {
     this.config = config;
 
+    // Resolve player max HP from character bio stats (each character has unique HP)
+    const charBio    = CHARACTER_BIOS[config.playerCharacterId as keyof typeof CHARACTER_BIOS];
+    const resolvedMaxHp = charBio ? charBio.stats.hp : PLAYER_MAX_HP;
+
     const weaponDef  = WEAPONS.find(w => w.id === config.playerWeaponId);
     const startAmmo  = weaponDef?.stats.ammo ?? 0;
 
@@ -119,11 +123,11 @@ export class BattleEngine {
       phase:           "playing",
       timeLeftSec:     config.timeLimitSec,
       playerPos:       { ...MAP_LAYOUT.playerSpawn },
-      playerYaw:       0,
-      cameraYaw:       0,
+      playerYaw:       MAP_LAYOUT.playerSpawnYaw,
+      cameraYaw:       MAP_LAYOUT.playerSpawnYaw,
       cameraPitch:     0.12,
-      playerHp:        PLAYER_MAX_HP,
-      playerMaxHp:     PLAYER_MAX_HP,
+      playerHp:        resolvedMaxHp,
+      playerMaxHp:     resolvedMaxHp,
       playerWeaponId:  config.playerWeaponId,
       playerAmmo:      startAmmo,
       playerMaxAmmo:   startAmmo,
@@ -243,7 +247,11 @@ export class BattleEngine {
   }
 
   private resolvePlayerBuildingCollision() {
-    for (const b of MAP_LAYOUT.buildings) {
+    const obstacles = [
+      ...MAP_LAYOUT.buildings,
+      ...MAP_LAYOUT.colliders,
+    ];
+    for (const b of obstacles) {
       const dx = this.state.playerPos.x - b.pos.x;
       const dz = this.state.playerPos.z - b.pos.z;
       const overlapX = b.halfW + PLAYER_RADIUS - Math.abs(dx);
@@ -256,6 +264,19 @@ export class BattleEngine {
         }
       }
     }
+  }
+
+  private isClearOfObstacles(pos: { x: number; z: number }, radius: number): boolean {
+    const obstacles = [
+      ...MAP_LAYOUT.buildings,
+      ...MAP_LAYOUT.colliders,
+    ];
+    for (const b of obstacles) {
+      const dx = Math.abs(pos.x - b.pos.x);
+      const dz = Math.abs(pos.z - b.pos.z);
+      if (dx < b.halfW + radius && dz < b.halfD + radius) return false;
+    }
+    return true;
   }
 
   // ─── Bots ────────────────────────────────────────────────────────────────────
@@ -440,7 +461,22 @@ export class BattleEngine {
   private respawnBot(bot: BotInstance) {
     const spawnDef = MAP_LAYOUT.botSpawns.find(s => s.id === bot.id);
     if (!spawnDef) return;
-    bot.pos          = { ...spawnDef.pos };
+    let respawnPos = { ...spawnDef.pos };
+    // If original spawn is somehow inside an obstacle, jitter until clear
+    if (!this.isClearOfObstacles(respawnPos, BOT_RADIUS)) {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = {
+          x: clamp(respawnPos.x + (Math.random() - 0.5) * 6, -MAP_HALF, MAP_HALF),
+          z: clamp(respawnPos.z + (Math.random() - 0.5) * 6, -MAP_HALF, MAP_HALF),
+        };
+        if (this.isClearOfObstacles(candidate, BOT_RADIUS)) {
+          respawnPos.x = candidate.x;
+          respawnPos.z = candidate.z;
+          break;
+        }
+      }
+    }
+    bot.pos          = respawnPos;
     bot.hp           = BOT_MAX_HP;
     bot.aiState      = "idle";
     bot.roamTarget   = null;

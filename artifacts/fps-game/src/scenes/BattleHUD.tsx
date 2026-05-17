@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   FONT_PRIMARY, FONT_NARROW,
   CORE_BOX_META,
 } from "../constants/game";
 import type { BattleState, BattleConfig, InputState, Team } from "../game/battleTypes";
+import type { HUDSettings } from "../game/hudSettings";
+import { DEFAULT_HUD } from "../game/hudSettings";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const CROSSHAIR_SRC    = "/assets/crosshairs/crosshair025.png";
@@ -32,37 +34,54 @@ function formatTime(sec: number) {
 interface Props {
   state:         BattleState;
   config:        BattleConfig;
+  hudSettings:   HUDSettings;
   onEnd:         (won: boolean, kills: number) => void;
   onMobileInput: (inp: Partial<InputState>) => void;
   isMobile:      boolean;
 }
 
-export default function BattleHUD({ state, config, onEnd, isMobile, onMobileInput }: Props) {
+// Build a position style from HUD settings — always fixed, top-left anchored
+function posStyle(x: number, y: number, scale: number): CSSProperties {
+  return {
+    position:        "fixed",
+    left:            `${x}vw`,
+    top:             `${y}vh`,
+    transform:       scale !== 1 ? `scale(${scale})` : undefined,
+    transformOrigin: "top left",
+    zIndex:          HUD_Z,
+  };
+}
+
+export default function BattleHUD({ state, config, hudSettings, onEnd, isMobile, onMobileInput }: Props) {
   const hpPct     = (state.playerHp / state.playerMaxHp) * 100;
   const ammoPct   = state.playerMaxAmmo > 0 ? (state.playerAmmo / state.playerMaxAmmo) * 100 : 0;
   const isLowHp   = state.playerHp < HP_LOW_THRESH;
   const isPlaying = state.phase === "playing";
+  const hs        = hudSettings;
 
   return (
     <>
       {isPlaying && (
         <>
-          {/* ── Health bar (top-left) ───────────────────────────────────── */}
-          <HealthBar hp={state.playerHp} maxHp={state.playerMaxHp} pct={hpPct} isLow={isLowHp} />
+          {/* ── Health bar ──────────────────────────────────────────────── */}
+          <HealthBar
+            hp={state.playerHp} maxHp={state.playerMaxHp} pct={hpPct} isLow={isLowHp}
+            pos={hs.healthBar}
+          />
 
-          {/* ── Kill score + timer (top-center) ────────────────────────── */}
-          <ScoreTimer state={state} config={config} />
+          {/* ── Kill score + timer ──────────────────────────────────────── */}
+          <ScoreTimer state={state} config={config} pos={hs.scoreTimer} />
 
-          {/* ── Kill feed (top-right) ──────────────────────────────────── */}
-          <KillFeed state={state} />
+          {/* ── Kill feed ───────────────────────────────────────────────── */}
+          <KillFeed state={state} pos={hs.killFeed} />
 
-          {/* ── Ammo (bottom-right) ────────────────────────────────────── */}
-          <AmmoDisplay state={state} ammoPct={ammoPct} />
+          {/* ── Ammo ────────────────────────────────────────────────────── */}
+          <AmmoDisplay state={state} ammoPct={ammoPct} pos={hs.ammo} />
 
-          {/* ── Core box inventory (bottom-left) ───────────────────────── */}
+          {/* ── Core box inventory (bottom-left, fixed for now) ─────────── */}
           <CoreBoxDisplay boxes={state.playerCoreBoxes} />
 
-          {/* ── Crosshair ──────────────────────────────────────────────── */}
+          {/* ── Crosshair (always center, not customizable) ─────────────── */}
           <div style={{
             position:  "fixed",
             top:       "50%", left: "50%",
@@ -80,9 +99,7 @@ export default function BattleHUD({ state, config, onEnd, isMobile, onMobileInpu
           </div>
 
           {/* ── Near machine hint ──────────────────────────────────────── */}
-          {state.nearMachineTeam === "blue" && (
-            <InteractHint />
-          )}
+          {state.nearMachineTeam === "blue" && <InteractHint />}
 
           {/* ── Reload indicator ───────────────────────────────────────── */}
           {state.isReloading && <ReloadIndicator />}
@@ -99,7 +116,13 @@ export default function BattleHUD({ state, config, onEnd, isMobile, onMobileInpu
           )}
 
           {/* ── Mobile controls ────────────────────────────────────────── */}
-          {isMobile && <MobileHUDControls onInput={onMobileInput} />}
+          {isMobile && (
+            <MobileHUDControls
+              onInput={onMobileInput}
+              firePos={hs.fireButton}
+              interactPos={hs.interactButton}
+            />
+          )}
         </>
       )}
 
@@ -127,11 +150,14 @@ export default function BattleHUD({ state, config, onEnd, isMobile, onMobileInpu
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function HealthBar({ hp, maxHp, pct, isLow }: { hp: number; maxHp: number; pct: number; isLow: boolean }) {
+function HealthBar({ hp, maxHp, pct, isLow, pos }: {
+  hp: number; maxHp: number; pct: number; isLow: boolean;
+  pos: { x: number; y: number; scale: number };
+}) {
   return (
     <div style={{
-      position: "fixed", top: "clamp(10px,2vh,18px)", left: "clamp(10px,1.5vw,18px)",
-      zIndex: HUD_Z, display: "flex", flexDirection: "column", gap: 4,
+      ...posStyle(pos.x, pos.y, pos.scale),
+      display: "flex", flexDirection: "column", gap: 4,
     }}>
       <div style={{
         fontFamily: FONT_NARROW, fontSize: "clamp(7px,1vw,9px)",
@@ -160,13 +186,15 @@ function HealthBar({ hp, maxHp, pct, isLow }: { hp: number; maxHp: number; pct: 
   );
 }
 
-function ScoreTimer({ state, config }: { state: BattleState; config: BattleConfig }) {
+function ScoreTimer({ state, config, pos }: {
+  state: BattleState; config: BattleConfig;
+  pos: { x: number; y: number; scale: number };
+}) {
   const timeIsLow = state.timeLeftSec < 30;
   return (
     <div style={{
-      position:  "fixed", top: "clamp(8px,1.5vh,14px)", left: "50%",
-      transform: "translateX(-50%)", zIndex: HUD_Z,
-      display:   "flex", flexDirection: "column", alignItems: "center", gap: 3,
+      ...posStyle(pos.x, pos.y, pos.scale),
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
     }}>
       {/* Score */}
       <div style={{
@@ -198,11 +226,14 @@ function ScoreTimer({ state, config }: { state: BattleState; config: BattleConfi
   );
 }
 
-function KillFeed({ state }: { state: BattleState }) {
+function KillFeed({ state, pos }: {
+  state: BattleState;
+  pos: { x: number; y: number; scale: number };
+}) {
   return (
     <div style={{
-      position: "fixed", top: "clamp(10px,2vh,18px)", right: "clamp(10px,1.5vw,18px)",
-      zIndex: HUD_Z, display: "flex", flexDirection: "column", gap: 4,
+      ...posStyle(pos.x, pos.y, pos.scale),
+      display: "flex", flexDirection: "column", gap: 4,
       maxWidth: "clamp(160px,25vw,220px)",
     }}>
       {state.killFeed.slice(0, 5).map((evt, i) => (
@@ -231,13 +262,15 @@ function KillFeed({ state }: { state: BattleState }) {
   );
 }
 
-function AmmoDisplay({ state, ammoPct }: { state: BattleState; ammoPct: number }) {
+function AmmoDisplay({ state, ammoPct, pos }: {
+  state: BattleState; ammoPct: number;
+  pos: { x: number; y: number; scale: number };
+}) {
   const isLowAmmo = state.playerAmmo <= Math.floor(state.playerMaxAmmo * 0.25);
   return (
     <div style={{
-      position:  "fixed", bottom: "clamp(12px,2.5vh,20px)", right: "clamp(12px,2vw,20px)",
-      zIndex:    HUD_Z,
-      display:   "flex", flexDirection: "column", alignItems: "flex-end", gap: 3,
+      ...posStyle(pos.x, pos.y, pos.scale),
+      display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3,
     }}>
       {state.isReloading && (
         <div style={{
@@ -494,8 +527,12 @@ function ScorePill({ team, kills, label }: { team: Team; kills: number; label: s
 }
 
 // ─── Mobile HUD Controls (fire + interact) ────────────────────────────────────
-function MobileHUDControls({ onInput }: { onInput: (inp: Partial<InputState>) => void }) {
-  const fireRef = useRef(false);
+function MobileHUDControls({ onInput, firePos, interactPos }: {
+  onInput:      (inp: Partial<InputState>) => void;
+  firePos:      { x: number; y: number; scale: number };
+  interactPos:  { x: number; y: number; scale: number };
+}) {
+  const BASE_BTN = 68;  // px
 
   return (
     <>
@@ -503,11 +540,11 @@ function MobileHUDControls({ onInput }: { onInput: (inp: Partial<InputState>) =>
       <div
         style={{
           position:     "fixed",
-          right:        "clamp(16px,4vw,32px)",
-          bottom:       "clamp(80px,18vh,120px)",
+          left:         `${firePos.x}vw`,
+          top:          `${firePos.y}vh`,
           zIndex:       HUD_Z + 2,
-          width:        "clamp(60px,10vw,80px)",
-          height:       "clamp(60px,10vw,80px)",
+          width:        BASE_BTN * firePos.scale,
+          height:       BASE_BTN * firePos.scale,
           borderRadius: "50%",
           background:   "rgba(255,60,60,0.30)",
           border:       "2.5px solid rgba(255,80,80,0.70)",
@@ -515,22 +552,22 @@ function MobileHUDControls({ onInput }: { onInput: (inp: Partial<InputState>) =>
           userSelect:   "none",
           touchAction:  "none",
         }}
-        onPointerDown={() => { fireRef.current = true;  onInput({ fire: true  }); }}
-        onPointerUp={() =>   { fireRef.current = false; onInput({ fire: false }); }}
-        onPointerLeave={() =>{ fireRef.current = false; onInput({ fire: false }); }}
+        onPointerDown={() => onInput({ fire: true  })}
+        onPointerUp={() =>   onInput({ fire: false })}
+        onPointerLeave={() => onInput({ fire: false })}
       >
-        <span style={{ fontSize: "clamp(20px,3.5vw,28px)" }}>🔥</span>
+        <span style={{ fontSize: BASE_BTN * firePos.scale * 0.4 }}>🔥</span>
       </div>
 
       {/* Interact button */}
       <div
         style={{
           position:     "fixed",
-          right:        "clamp(90px,16vw,130px)",
-          bottom:       "clamp(80px,18vh,120px)",
+          left:         `${interactPos.x}vw`,
+          top:          `${interactPos.y}vh`,
           zIndex:       HUD_Z + 2,
-          width:        "clamp(46px,8vw,60px)",
-          height:       "clamp(46px,8vw,60px)",
+          width:        BASE_BTN * interactPos.scale * 0.75,
+          height:       BASE_BTN * interactPos.scale * 0.75,
           borderRadius: "50%",
           background:   "rgba(255,140,0,0.25)",
           border:       "2px solid rgba(255,140,0,0.55)",
@@ -541,7 +578,12 @@ function MobileHUDControls({ onInput }: { onInput: (inp: Partial<InputState>) =>
         onPointerDown={() => onInput({ interact: true  })}
         onPointerUp={() =>   onInput({ interact: false })}
       >
-        <span style={{ fontSize: "clamp(14px,2.5vw,20px)", fontFamily: FONT_NARROW, color: "#ffaa00", letterSpacing: "0.1em" }}>E</span>
+        <span style={{
+          fontSize:      BASE_BTN * interactPos.scale * 0.3,
+          fontFamily:    FONT_NARROW,
+          color:         "#ffaa00",
+          letterSpacing: "0.1em",
+        }}>E</span>
       </div>
     </>
   );

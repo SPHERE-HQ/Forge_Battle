@@ -74,6 +74,15 @@ export default function Minimap({ state }: Props) {
       c.fillRect(bx - hw, bz - hd, hw * 2, hd * 2);
     }
 
+    // ── Colliders (rocks / props with collision) ──────────────────────────────
+    c.fillStyle = "rgba(80,70,50,0.45)";
+    for (const col of MAP_LAYOUT.colliders) {
+      const [cx2, cz2] = toCanvas(col.pos.x, col.pos.z);
+      const hw = col.halfW * SCALE;
+      const hd = col.halfD * SCALE;
+      c.fillRect(cx2 - hw, cz2 - hd, hw * 2, hd * 2);
+    }
+
     // ── Builder machines ─────────────────────────────────────────────────────
     function drawMachine(wx: number, wz: number, color: string) {
       const [mx, mz] = toCanvas(wx, wz);

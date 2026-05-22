@@ -226,6 +226,9 @@ export default function BattleScene({ config, onEnd }: Props) {
       scene.add(m);
     }
 
+    // ── Shared GLTFLoader — declared once, used for all model loads ───────────
+    const loader = new GLTFLoader();
+
     // Replace capsule with actual GLB character model once it loads
     function applyModelToBots(
       gltfScene: THREE.Group,
@@ -236,11 +239,8 @@ export default function BattleScene({ config, onEnd }: Props) {
         if (bot.team !== team) continue;
         const group = botMeshes.get(bot.id);
         if (!group) continue;
-        // Remove capsule placeholders
         while (group.children.length > 0) group.remove(group.children[0]);
-        // Clone the loaded model for this bot
         const model = gltfScene.clone(true);
-        // Normalize height to 1.8 units
         const rawBox = new THREE.Box3().setFromObject(model);
         const h      = rawBox.getSize(new THREE.Vector3()).y;
         if (h > 0) model.scale.setScalar(1.8 / h);
@@ -253,7 +253,6 @@ export default function BattleScene({ config, onEnd }: Props) {
           }
         });
         group.add(model);
-        // Re-add team indicator cone above head
         const cone = new THREE.Mesh(
           new THREE.ConeGeometry(0.11, 0.3, 6),
           new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
@@ -279,7 +278,6 @@ export default function BattleScene({ config, onEnd }: Props) {
     const playerGroup = new THREE.Group();
     scene.add(playerGroup);
     const playerChar = CHARACTERS.find(c => c.id === config.playerCharacterId);
-    const loader     = new GLTFLoader();
     if (playerChar?.modelPath) {
       loader.load(playerChar.modelPath, (gltf) => {
         const model  = gltf.scene;

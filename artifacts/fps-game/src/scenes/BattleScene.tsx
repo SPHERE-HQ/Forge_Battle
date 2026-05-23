@@ -8,7 +8,7 @@ import CraftingPanel from "./CraftingPanel";
 import Minimap from "./Minimap";
 import HUDCustomizer from "./HUDCustomizer";
 import MAP_LAYOUT from "../game/mapLayout";
-import { CHARACTERS, FONT_NARROW } from "../constants/game";
+import { FONT_NARROW } from "../constants/game";
 import { loadHUDSettings, saveHUDSettings } from "../game/hudSettings";
 import type { HUDSettings } from "../game/hudSettings";
 import type { BattleConfig, BattleState, InputState } from "../game/battleTypes";
@@ -78,11 +78,16 @@ export default function BattleScene({ config, onEnd }: Props) {
 
   const [hudState, setHudState]           = useState<BattleState | null>(null);
   const [isMobile, setIsMobile]           = useState(false);
+  const isMobileRef                       = useRef(false);
   const [showCrafting, setShowCrafting]   = useState(false);
   const [hudSettings, setHudSettings]     = useState<HUDSettings>(loadHUDSettings);
   const [showCustomizer, setShowCustomizer] = useState(false);
 
-  useEffect(() => { setIsMobile("ontouchstart" in window); }, []);
+  useEffect(() => {
+    const mobile = "ontouchstart" in window;
+    setIsMobile(mobile);
+    isMobileRef.current = mobile;
+  }, []);
 
   const handleSaveHUD = useCallback((s: HUDSettings) => {
     saveHUDSettings(s);
@@ -277,26 +282,22 @@ export default function BattleScene({ config, onEnd }: Props) {
     // ── Player group ──────────────────────────────────────────────────────────
     const playerGroup = new THREE.Group();
     scene.add(playerGroup);
-    const playerChar = CHARACTERS.find(c => c.id === config.playerCharacterId);
-    if (playerChar?.modelPath) {
-      loader.load(playerChar.modelPath, (gltf) => {
-        const model  = gltf.scene;
-        const rawBox = new THREE.Box3().setFromObject(model);
-        const h      = rawBox.getSize(new THREE.Vector3()).y;
-        if (h > 0) model.scale.setScalar(1.8 / h);
-        const box2 = new THREE.Box3().setFromObject(model);
-        model.position.y = -box2.min.y;
-        model.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
-        playerGroup.add(model);
-      });
-    } else {
-      const placeholder = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8),
-        new THREE.MeshLambertMaterial({ color: CLR_BLUE_BOT }),
-      );
-      placeholder.position.y = 0.9;
-      playerGroup.add(placeholder);
-    }
+    // Player body not rendered (TPS: would clip camera at close range)
+
+    // ── Simple FPS weapon mesh (follows camera each frame) ────────────────────
+    const weaponGroup = new THREE.Group();
+    const gunDark   = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    const gunLight  = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+    const gunBody   = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.38), gunLight);
+    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.018, 0.30, 8), gunDark);
+    const gunMag    = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.055), gunDark);
+    const gunSlide  = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.045, 0.32), gunDark);
+    gunBarrel.rotation.x = Math.PI / 2;
+    gunBarrel.position.set(0, 0.01, -0.27);
+    gunMag.position.set(0, -0.09, 0.03);
+    gunSlide.position.set(0, 0.045, -0.02);
+    weaponGroup.add(gunBody, gunBarrel, gunMag, gunSlide);
+    scene.add(weaponGroup);
 
     // ── Bullet trail pool ─────────────────────────────────────────────────────
     const bulletLines: THREE.Line[] = [];
@@ -404,7 +405,10 @@ export default function BattleScene({ config, onEnd }: Props) {
     const initYaw = MAP_LAYOUT.playerSpawnYaw;
     let camX      = MAP_LAYOUT.playerSpawn.x - Math.sin(initYaw) * CAM_DIST;
     let camZ      = MAP_LAYOUT.playerSpawn.z - Math.cos(initYaw) * CAM_DIST;
-    const lookAt  = new THREE.Vector3();
+    const lookAt    = new THREE.Vector3();
+    const weapFwd   = new THREE.Vector3();
+    const weapRight = new THREE.Vector3();
+    const weapUp    = new THREE.Vector3();
     let hudTimer  = 0;
     let bulletIdx = 0;
     let prevTime  = 0;
@@ -429,16 +433,16 @@ export default function BattleScene({ config, onEnd }: Props) {
 
       // Build keyboard move input
       const inp = inputRef.current;
-      inp.moveZ = 0; inp.moveX = 0;
       const keys = keysRef.current;
-      if (keys.has("KeyW") || keys.has("ArrowUp"))    inp.moveZ =  1;
-      if (keys.has("KeyS") || keys.has("ArrowDown"))  inp.moveZ = -1;
-      if (keys.has("KeyA") || keys.has("ArrowLeft"))  inp.moveX = -1;
-      if (keys.has("KeyD") || keys.has("ArrowRight")) inp.moveX =  1;
-      inp.sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
-      if (!keys.has("Space") && !keys.has("KeyF") && document.pointerLockElement !== canvas) {
-        // fire only set by mouse events in pointer-lock mode
+      // On mobile, joystick sets moveX/moveZ directly — don't overwrite with keyboard zeros
+      if (!isMobileRef.current) {
+        inp.moveZ = 0; inp.moveX = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp"))    inp.moveZ =  1;
+        if (keys.has("KeyS") || keys.has("ArrowDown"))  inp.moveZ = -1;
+        if (keys.has("KeyA") || keys.has("ArrowLeft"))  inp.moveX = -1;
+        if (keys.has("KeyD") || keys.has("ArrowRight")) inp.moveX =  1;
       }
+      inp.sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
 
       engine.update(dt, inp);
       const state = engine.state;
@@ -504,6 +508,16 @@ export default function BattleScene({ config, onEnd }: Props) {
       camera.position.set(camX, tgtY, camZ);
       lookAt.set(state.playerPos.x, 1.1, state.playerPos.z);
       camera.lookAt(lookAt);
+
+      // ── Weapon follows camera (FPS-style lower-right) ──────────────────────
+      camera.getWorldDirection(weapFwd);
+      weapRight.crossVectors(camera.up, weapFwd).normalize();
+      weapUp.crossVectors(weapFwd, weapRight).normalize();
+      weaponGroup.position.copy(camera.position)
+        .addScaledVector(weapFwd,   0.55)
+        .addScaledVector(weapRight, -0.22)
+        .addScaledVector(weapUp,    -0.16);
+      weaponGroup.quaternion.copy(camera.quaternion);
 
       // ── Bots ───────────────────────────────────────────────────────────────
       for (const bot of state.bots) {

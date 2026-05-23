@@ -81,21 +81,37 @@ export default function BattleHUD({ state, config, hudSettings, onEnd, isMobile,
           {/* ── Core box inventory (bottom-left, fixed for now) ─────────── */}
           <CoreBoxDisplay boxes={state.playerCoreBoxes} />
 
-          {/* ── Crosshair (always center, not customizable) ─────────────── */}
+          {/* ── Crosshair (always center, CSS — no image dependency) ──── */}
           <div style={{
             position:  "fixed",
             top:       "50%", left: "50%",
             transform: "translate(-50%, -50%)",
             zIndex:    HUD_Z,
             pointerEvents: "none",
+            width:     CROSSHAIR_SIZE,
+            height:    CROSSHAIR_SIZE,
+            opacity:   state.isReloading ? 0.35 : 0.90,
           }}>
-            <img
-              src={CROSSHAIR_SRC}
-              width={CROSSHAIR_SIZE}
-              height={CROSSHAIR_SIZE}
-              alt=""
-              style={{ opacity: 0.9, filter: state.isReloading ? "brightness(0.5)" : "none" }}
-            />
+            {/* Horizontal bar */}
+            <div style={{
+              position: "absolute", top: "50%", left: "20%", right: "20%",
+              height: 2, background: "#fff",
+              transform: "translateY(-50%)",
+              boxShadow: "0 0 3px rgba(0,0,0,0.9)",
+            }} />
+            {/* Vertical bar */}
+            <div style={{
+              position: "absolute", left: "50%", top: "20%", bottom: "20%",
+              width: 2, background: "#fff",
+              transform: "translateX(-50%)",
+              boxShadow: "0 0 3px rgba(0,0,0,0.9)",
+            }} />
+            {/* Center dot */}
+            <div style={{
+              position: "absolute", top: "50%", left: "50%",
+              width: 3, height: 3, background: "#fff", borderRadius: "50%",
+              transform: "translate(-50%,-50%)",
+            }} />
           </div>
 
           {/* ── Near machine hint ──────────────────────────────────────── */}

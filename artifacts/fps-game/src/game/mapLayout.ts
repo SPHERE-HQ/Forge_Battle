@@ -76,16 +76,11 @@ const MAP_LAYOUT: MapLayout = {
   // All yaws pointing toward map center (0,0):
   // blue team at (-42~-48, -38~-48) corner → yaw ≈ PI/4 (northeast)
   // red  team at ( 42~ 48,  38~ 48) corner → yaw ≈ -3*PI/4 (southwest)
+  // Blue team starts with NO bots — player crafts allies at the machine
+  // Red team starts with 1 leader (enemy "player") + 1 follower
   botSpawns: [
-    { id: "ally1",  pos: { x: -46, y: 0, z: -40 }, yaw:  Math.PI / 4,        team: "blue", role: "leader"   },
-    { id: "ally2",  pos: { x: -42, y: 0, z: -48 }, yaw:  Math.PI / 4,        team: "blue", role: "follower" },
-    { id: "ally3",  pos: { x: -50, y: 0, z: -44 }, yaw:  Math.PI / 4,        team: "blue", role: "follower" },
-    { id: "ally4",  pos: { x: -48, y: 0, z: -36 }, yaw:  Math.PI / 4,        team: "blue", role: "follower" },
     { id: "enemy1", pos: { x:  46, y: 0, z:  40  }, yaw: -3 * Math.PI / 4,   team: "red",  role: "leader"   },
     { id: "enemy2", pos: { x:  42, y: 0, z:  48  }, yaw: -3 * Math.PI / 4,   team: "red",  role: "follower" },
-    { id: "enemy3", pos: { x:  50, y: 0, z:  44  }, yaw: -3 * Math.PI / 4,   team: "red",  role: "follower" },
-    { id: "enemy4", pos: { x:  48, y: 0, z:  36  }, yaw: -3 * Math.PI / 4,   team: "red",  role: "follower" },
-    { id: "enemy5", pos: { x:  44, y: 0, z:  50  }, yaw: -3 * Math.PI / 4,   team: "red",  role: "follower" },
   ],
 };
 

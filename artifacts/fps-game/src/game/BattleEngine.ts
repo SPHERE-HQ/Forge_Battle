@@ -33,8 +33,8 @@ const BULLET_HIT_RADIUS  = 0.55;
 const CORE_BOX_RANGE     = 1.8;
 const MACHINE_RANGE      = 3.5;
 const MAP_HALF           = 54;
-const CAM_PITCH_MIN      = -0.32;
-const CAM_PITCH_MAX      = 0.60;
+const CAM_PITCH_MIN      = -1.2;
+const CAM_PITCH_MAX      = 1.2;
 const MOUSE_SENSITIVITY  = 1.0;
 const KILL_FEED_LIFETIME = 6.0;
 

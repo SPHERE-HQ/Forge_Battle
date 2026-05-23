@@ -538,7 +538,8 @@ export default function BattleScene({ config, onEnd }: Props) {
 
       // ── Player ─────────────────────────────────────────────────────────────
       playerGroup.position.set(state.playerPos.x, 0, state.playerPos.z);
-      playerGroup.rotation.y = state.playerYaw;
+      // +PI: Three.js default mesh forward is -Z, but engine forward is +Z(yaw)
+      playerGroup.rotation.y = state.playerYaw + Math.PI;
 
       // ── Camera follow ──────────────────────────────────────────────────────
       const yaw     = state.cameraYaw;
@@ -574,7 +575,7 @@ export default function BattleScene({ config, onEnd }: Props) {
         m.visible  = !dead;
         if (!dead) {
           m.position.set(bot.pos.x, 0, bot.pos.z);
-          m.rotation.y = bot.yaw;
+          m.rotation.y = bot.yaw + Math.PI;
         }
       }
 

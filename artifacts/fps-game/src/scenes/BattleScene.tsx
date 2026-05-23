@@ -8,7 +8,7 @@ import CraftingPanel from "./CraftingPanel";
 import Minimap from "./Minimap";
 import HUDCustomizer from "./HUDCustomizer";
 import MAP_LAYOUT from "../game/mapLayout";
-import { FONT_NARROW } from "../constants/game";
+import { CHARACTERS, FONT_NARROW, WEAPON_MODEL_PATH } from "../constants/game";
 import { loadHUDSettings, saveHUDSettings } from "../game/hudSettings";
 import type { HUDSettings } from "../game/hudSettings";
 import type { BattleConfig, BattleState, InputState } from "../game/battleTypes";
@@ -59,6 +59,26 @@ function playAudio(src: string, volume = 0.6) {
     a.volume = volume;
     a.play().catch(() => {});
   } catch { /* ignore */ }
+}
+
+// ─── SkinnedMesh-safe bounds from geometry vertex buffer ──────────────────────
+// Box3.setFromObject() fails for SkinnedMesh before first render (h=0).
+// Instead compute from the geometry position attribute (rest pose).
+function computeModelBounds(root: THREE.Object3D): { h: number; minY: number } {
+  root.updateWorldMatrix(true, true);
+  let minY = Infinity, maxY = -Infinity;
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const geo = mesh.geometry;
+    geo.computeBoundingBox();
+    if (!geo.boundingBox) return;
+    const box = geo.boundingBox.clone().applyMatrix4(child.matrixWorld);
+    minY = Math.min(minY, box.min.y);
+    maxY = Math.max(maxY, box.max.y);
+  });
+  if (!isFinite(minY) || !isFinite(maxY)) return { h: 1.8, minY: 0 };
+  return { h: maxY - minY, minY };
 }
 
 interface Props {
@@ -246,11 +266,10 @@ export default function BattleScene({ config, onEnd }: Props) {
         if (!group) continue;
         while (group.children.length > 0) group.remove(group.children[0]);
         const model = gltfScene.clone(true);
-        const rawBox = new THREE.Box3().setFromObject(model);
-        const h      = rawBox.getSize(new THREE.Vector3()).y;
-        if (h > 0) model.scale.setScalar(1.8 / h);
-        const box2 = new THREE.Box3().setFromObject(model);
-        model.position.y = -box2.min.y;
+        const { h, minY } = computeModelBounds(model);
+        const scale = h > 0 ? 1.8 / h : 1;
+        model.scale.setScalar(scale);
+        model.position.y = -minY * scale;
         model.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {
             o.castShadow    = true;
@@ -282,22 +301,51 @@ export default function BattleScene({ config, onEnd }: Props) {
     // ── Player group ──────────────────────────────────────────────────────────
     const playerGroup = new THREE.Group();
     scene.add(playerGroup);
-    // Player body not rendered (TPS: would clip camera at close range)
+    // ── Player character body (TPS — visible from behind camera) ─────────────
+    const playerChar = CHARACTERS.find(c => c.id === config.playerCharacterId);
+    if (playerChar?.modelPath) {
+      loader.load(playerChar.modelPath, (gltf) => {
+        const model = gltf.scene;
+        const { h, minY } = computeModelBounds(model);
+        const scale = h > 0 ? 1.8 / h : 1;
+        model.scale.setScalar(scale);
+        model.position.y = -minY * scale;
+        model.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+        playerGroup.add(model);
+      });
+    }
 
-    // ── Simple FPS weapon mesh (follows camera each frame) ────────────────────
+    // ── Weapon model (real GLB, at player's right hand in TPS) ───────────────
     const weaponGroup = new THREE.Group();
-    const gunDark   = new THREE.MeshLambertMaterial({ color: 0x222222 });
-    const gunLight  = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
-    const gunBody   = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.38), gunLight);
-    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.018, 0.30, 8), gunDark);
-    const gunMag    = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.055), gunDark);
-    const gunSlide  = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.045, 0.32), gunDark);
-    gunBarrel.rotation.x = Math.PI / 2;
-    gunBarrel.position.set(0, 0.01, -0.27);
-    gunMag.position.set(0, -0.09, 0.03);
-    gunSlide.position.set(0, 0.045, -0.02);
-    weaponGroup.add(gunBody, gunBarrel, gunMag, gunSlide);
     scene.add(weaponGroup);
+    let currentWeaponId = "";
+
+    function loadWeaponModel(weaponId: string) {
+      if (weaponId === currentWeaponId) return;
+      currentWeaponId = weaponId;
+      while (weaponGroup.children.length > 0) weaponGroup.remove(weaponGroup.children[0]);
+      const path = (WEAPON_MODEL_PATH as Record<string, string>)[weaponId];
+      if (!path) return;
+      loader.load(path, (gltf) => {
+        if (currentWeaponId !== weaponId) return; // stale load
+        const model = gltf.scene;
+        const { h, minY } = computeModelBounds(model);
+        const sc = h > 0 ? 0.5 / h : 1;
+        model.scale.setScalar(sc);
+        model.position.y = -minY * sc;
+        model.traverse(o => {
+          if ((o as THREE.Mesh).isMesh) { o.castShadow = false; o.receiveShadow = false; }
+        });
+        weaponGroup.add(model);
+      }, undefined, () => {
+        if (currentWeaponId !== weaponId) return;
+        const fb = new THREE.Mesh(
+          new THREE.BoxGeometry(0.06, 0.06, 0.35),
+          new THREE.MeshLambertMaterial({ color: 0x222222 }),
+        );
+        weaponGroup.add(fb);
+      });
+    }
 
     // ── Bullet trail pool ─────────────────────────────────────────────────────
     const bulletLines: THREE.Line[] = [];
@@ -405,10 +453,7 @@ export default function BattleScene({ config, onEnd }: Props) {
     const initYaw = MAP_LAYOUT.playerSpawnYaw;
     let camX      = MAP_LAYOUT.playerSpawn.x - Math.sin(initYaw) * CAM_DIST;
     let camZ      = MAP_LAYOUT.playerSpawn.z - Math.cos(initYaw) * CAM_DIST;
-    const lookAt    = new THREE.Vector3();
-    const weapFwd   = new THREE.Vector3();
-    const weapRight = new THREE.Vector3();
-    const weapUp    = new THREE.Vector3();
+    const lookAt = new THREE.Vector3();
     let hudTimer  = 0;
     let bulletIdx = 0;
     let prevTime  = 0;
@@ -506,18 +551,20 @@ export default function BattleScene({ config, onEnd }: Props) {
       camX         += (tgtX - camX) * alpha;
       camZ         += (tgtZ - camZ) * alpha;
       camera.position.set(camX, tgtY, camZ);
-      lookAt.set(state.playerPos.x, 1.1, state.playerPos.z);
+      // TPS: look at head level so screen-center crosshair appears above character
+      lookAt.set(state.playerPos.x, 1.8, state.playerPos.z);
       camera.lookAt(lookAt);
 
-      // ── Weapon follows camera (FPS-style lower-right) ──────────────────────
-      camera.getWorldDirection(weapFwd);
-      weapRight.crossVectors(camera.up, weapFwd).normalize();
-      weapUp.crossVectors(weapFwd, weapRight).normalize();
-      weaponGroup.position.copy(camera.position)
-        .addScaledVector(weapFwd,   0.55)
-        .addScaledVector(weapRight, -0.22)
-        .addScaledVector(weapUp,    -0.16);
-      weaponGroup.quaternion.copy(camera.quaternion);
+      // ── Weapon at player's right hand (TPS world-space) ────────────────────
+      loadWeaponModel(state.playerWeaponId);
+      const sinW = Math.sin(state.playerYaw);
+      const cosW = Math.cos(state.playerYaw);
+      weaponGroup.position.set(
+        state.playerPos.x + cosW * 0.38 + sinW * 0.22,
+        0.90,
+        state.playerPos.z - sinW * 0.38 + cosW * 0.22,
+      );
+      weaponGroup.rotation.y = state.playerYaw;
 
       // ── Bots ───────────────────────────────────────────────────────────────
       for (const bot of state.bots) {

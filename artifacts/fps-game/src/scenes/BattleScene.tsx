@@ -1,129 +1,91 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { BattleEngine } from "../game/BattleEngine";
-import BattleHUD from "./BattleHUD";
-import MobileControls from "./MobileControls";
-import CraftingPanel from "./CraftingPanel";
-import Minimap from "./Minimap";
-import HUDCustomizer from "./HUDCustomizer";
-import MAP_LAYOUT from "../game/mapLayout";
-import { CHARACTERS, FONT_NARROW, WEAPON_MODEL_PATH } from "../constants/game";
-import { loadHUDSettings, saveHUDSettings } from "../game/hudSettings";
-import type { HUDSettings } from "../game/hudSettings";
-import type { BattleConfig, BattleState, InputState } from "../game/battleTypes";
-
-// ─── Three.js constants ───────────────────────────────────────────────────────
-const CAM_FOV         = 60;
-const CAM_NEAR        = 0.08;
-const CAM_FAR         = 300;
-const CAM_DIST        = 5.2;
-const CAM_HEIGHT      = 2.4;
-const CAM_SMOOTH      = 10;
-const GROUND_SIZE     = 240;
-const PIXEL_RATIO_CAP = 2;
-const HUD_SYNC_HZ     = 0.033;
-const BULLET_POOL_SZ  = 40;
-const BOT_CAPSULE_H   = 1.8;
-const BOT_CAPSULE_R   = 0.28;
-const MACHINE_W       = 1.2;
-const MACHINE_H       = 2.6;
-const MOUSE_SENS      = 0.0025;
-
-// ─── Colors ───────────────────────────────────────────────────────────────────
-const CLR_BLUE_BOT  = 0x4488ff;
-const CLR_RED_BOT   = 0xff4444;
-const CLR_BLUE_MACH = 0x2255ff;
-const CLR_RED_MACH  = 0xff2222;
-const CLR_GROUND    = 0x4a7c59;
-const CLR_SKY       = 0x7ec8e3;
-const CLR_FOG       = 0x7ec8e3;
-const CLR_SUN       = 0xfff5e0;
-const CLR_AMBIENT   = 0x8899bb;
-const CLR_FILL      = 0xaaccff;
-const CLR_BULLET    = 0xffff88;
-
-const CORE_BOX_CLR: Record<string, number> = {
-  red:    0xff3333,
-  yellow: 0xffcc00,
-  green:  0x33cc66,
-  blue:   0x3388ff,
-  purple: 0xaa44ff,
-  black:  0x555566,
-};
-
-// ─── Audio helper ─────────────────────────────────────────────────────────────
-function playAudio(src: string, volume = 0.6) {
-  try {
-    const a = new Audio(src);
-    a.volume = volume;
-    a.play().catch(() => {});
-  } catch { /* ignore */ }
-}
-
-// ─── SkinnedMesh-safe bounds from geometry vertex buffer ──────────────────────
-// Box3.setFromObject() fails for SkinnedMesh before first render (h=0).
-// Instead compute from the geometry position attribute (rest pose).
-function computeModelBounds(root: THREE.Object3D): { h: number; minY: number } {
-  root.updateWorldMatrix(true, true);
-  let minY = Infinity, maxY = -Infinity;
-  root.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geo = mesh.geometry;
-    geo.computeBoundingBox();
-    if (!geo.boundingBox) return;
-    const box = geo.boundingBox.clone().applyMatrix4(child.matrixWorld);
-    minY = Math.min(minY, box.min.y);
-    maxY = Math.max(maxY, box.max.y);
-  });
-  if (!isFinite(minY) || !isFinite(maxY)) return { h: 1.8, minY: 0 };
-  return { h: maxY - minY, minY };
-}
+import type { BattleConfig } from "../game/battleTypes";
 
 interface Props {
   config: BattleConfig;
-  onEnd:  (won: boolean, kills: number) => void;
+  onEnd: (won: boolean, kills: number) => void;
 }
 
-export default function BattleScene({ config, onEnd }: Props) {
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const engineRef  = useRef<BattleEngine | null>(null);
-  const inputRef   = useRef<InputState>({
-    moveX: 0, moveZ: 0, deltaYaw: 0, deltaPitch: 0,
-    fire: false, interact: false, sprint: false,
-  });
-  const keysRef    = useRef(new Set<string>());
-  const endedRef   = useRef(false);
+// ─── Helper: colored Box mesh ─────────────────────────────────────────────────
+function makeBox(
+  w: number, h: number, d: number,
+  color: number,
+  x: number, y: number, z: number,
+  castShadow = true,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshLambertMaterial({ color }),
+  );
+  mesh.position.set(x, y, z);
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
-  const [hudState, setHudState]           = useState<BattleState | null>(null);
-  const [isMobile, setIsMobile]           = useState(false);
-  const isMobileRef                       = useRef(false);
-  const [showCrafting, setShowCrafting]   = useState(false);
-  const [hudSettings, setHudSettings]     = useState<HUDSettings>(loadHUDSettings);
-  const [showCustomizer, setShowCustomizer] = useState(false);
+// ─── Blocky humanoid (Roblox / Minecraft style) ───────────────────────────────
+// Front face = local +Z  (eyes are placed at z = +0.41)
+// Root placed at foot level (y = 0).
+// Arms/legs use pivot Groups so rotation.x swings from the joint.
+interface BlockChar {
+  root:    THREE.Group;
+  armLPiv: THREE.Group;
+  armRPiv: THREE.Group;
+  legLPiv: THREE.Group;
+  legRPiv: THREE.Group;
+}
 
-  useEffect(() => {
-    const mobile = "ontouchstart" in window;
-    setIsMobile(mobile);
-    isMobileRef.current = mobile;
-  }, []);
+function buildBlockChar(
+  skinColor = 0xffcc99,
+  bodyColor = 0x1155cc,
+  legColor  = 0x1a1a44,
+): BlockChar {
+  const root = new THREE.Group();
 
-  const handleSaveHUD = useCallback((s: HUDSettings) => {
-    saveHUDSettings(s);
-    setHudSettings(s);
-  }, []);
+  // Head
+  root.add(makeBox(0.80, 0.80, 0.80, skinColor, 0, 2.40, 0));
+  // Eyes on +Z face
+  root.add(makeBox(0.16, 0.16, 0.02, 0x111111, -0.17, 2.46,  0.41, false));
+  root.add(makeBox(0.16, 0.16, 0.02, 0x111111,  0.17, 2.46,  0.41, false));
+  // Mouth
+  root.add(makeBox(0.22, 0.06, 0.02, 0x884422,  0.00, 2.22,  0.41, false));
 
-  const handleMobileInput = useCallback((inp: Partial<InputState>) => {
-    Object.assign(inputRef.current, inp);
-    // Open crafting panel via mobile interact button when near blue machine
-    if (inp.interact === true) {
-      const st = engineRef.current?.state;
-      if (st?.nearMachineTeam === "blue") {
-        setShowCrafting(prev => !prev);
-      }
-    }
-  }, []);
+  // Body
+  root.add(makeBox(1.00, 1.00, 0.50, bodyColor, 0, 1.50, 0));
+
+  // Arms — pivot at shoulder so swing looks natural
+  const armLPiv = new THREE.Group();
+  armLPiv.position.set(-0.675, 2.00, 0);
+  armLPiv.add(makeBox(0.35, 1.00, 0.35, bodyColor, 0, -0.50, 0));
+  root.add(armLPiv);
+
+  const armRPiv = new THREE.Group();
+  armRPiv.position.set(0.675, 2.00, 0);
+  armRPiv.add(makeBox(0.35, 1.00, 0.35, bodyColor, 0, -0.50, 0));
+  root.add(armRPiv);
+
+  // Legs — pivot at hip
+  const legLPiv = new THREE.Group();
+  legLPiv.position.set(-0.18, 1.00, 0);
+  legLPiv.add(makeBox(0.35, 1.00, 0.35, legColor, 0, -0.50, 0));
+  root.add(legLPiv);
+
+  const legRPiv = new THREE.Group();
+  legRPiv.position.set(0.18, 1.00, 0);
+  legRPiv.add(makeBox(0.35, 1.00, 0.35, legColor, 0, -0.50, 0));
+  root.add(legRPiv);
+
+  return { root, armLPiv, armRPiv, legLPiv, legRPiv };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+export default function BattleScene({ onEnd }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const handleExit = useCallback(() => {
+    onEnd(false, 0);
+  }, [onEnd]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -131,620 +93,253 @@ export default function BattleScene({ config, onEnd }: Props) {
 
     // ── Renderer ──────────────────────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_RATIO_CAP));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace  = THREE.SRGBColorSpace;
 
+    // ── Scene ─────────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(CLR_SKY);
-    scene.fog        = new THREE.Fog(CLR_FOG, 60, 200);
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog        = new THREE.FogExp2(0x87ceeb, 0.007);
 
-    const camera = new THREE.PerspectiveCamera(CAM_FOV, 1, CAM_NEAR, CAM_FAR);
+    // ── Camera ────────────────────────────────────────────────────────────────
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
 
-    // ── Lights ────────────────────────────────────────────────────────────────
-    const sun = new THREE.DirectionalLight(CLR_SUN, 2.2);
-    sun.position.set(30, 50, 20);
-    sun.castShadow              = true;
-    sun.shadow.mapSize.width    = 2048;
-    sun.shadow.mapSize.height   = 2048;
-    sun.shadow.camera.near      = 1;
-    sun.shadow.camera.far       = 160;
-    sun.shadow.camera.left      = -80;
-    sun.shadow.camera.right     = 80;
-    sun.shadow.camera.top       = 80;
-    sun.shadow.camera.bottom    = -80;
+    // ── Lighting ──────────────────────────────────────────────────────────────
+    const sun = new THREE.DirectionalLight(0xfff4d0, 2.2);
+    sun.position.set(50, 90, 40);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near   = 1;
+    sun.shadow.camera.far    = 300;
+    const sc                 = 120;
+    sun.shadow.camera.left   = -sc;
+    sun.shadow.camera.right  =  sc;
+    sun.shadow.camera.top    =  sc;
+    sun.shadow.camera.bottom = -sc;
     scene.add(sun);
-    scene.add(new THREE.AmbientLight(CLR_AMBIENT, 0.85));
-    const fill = new THREE.DirectionalLight(CLR_FILL, 0.45);
-    fill.position.set(-20, 10, -15);
+    scene.add(new THREE.AmbientLight(0x8899bb, 0.9));
+    const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
+    fill.position.set(-30, 20, -30);
     scene.add(fill);
 
-    // ── Ground ────────────────────────────────────────────────────────────────
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1),
-      new THREE.MeshLambertMaterial({ color: CLR_GROUND }),
+    // ── Ground — flat, empty, no obstacles ────────────────────────────────────
+    const groundMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(600, 600),
+      new THREE.MeshLambertMaterial({ color: 0x5a9c3a }),
     );
-    ground.rotation.x    = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
+    groundMesh.rotation.x   = -Math.PI / 2;
+    groundMesh.receiveShadow = true;
+    scene.add(groundMesh);
 
-    // ── Grid lines (subtle orientation) ───────────────────────────────────────
-    const gridHelper = new THREE.GridHelper(GROUND_SIZE, 24, 0x000000, 0x000000);
-    (gridHelper.material as THREE.LineBasicMaterial).opacity    = 0.06;
-    (gridHelper.material as THREE.LineBasicMaterial).transparent = true;
-    scene.add(gridHelper);
+    // Subtle grid
+    const grid = new THREE.GridHelper(600, 60, 0x000000, 0x000000);
+    (grid.material as THREE.LineBasicMaterial).opacity     = 0.05;
+    (grid.material as THREE.LineBasicMaterial).transparent = true;
+    scene.add(grid);
 
-    // ── Engine ────────────────────────────────────────────────────────────────
-    const engine = new BattleEngine(config);
-    engineRef.current = engine;
+    // ── Player character ──────────────────────────────────────────────────────
+    const char = buildBlockChar();
+    scene.add(char.root);
 
-    // ── Builder machines ──────────────────────────────────────────────────────
-    function makeMachine(pos: { x: number; z: number }, color: number) {
-      const g   = new THREE.Group();
-      const geo = new THREE.BoxGeometry(MACHINE_W, MACHINE_H, MACHINE_W);
-      const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35 });
-      const m   = new THREE.Mesh(geo, mat);
-      m.position.y = MACHINE_H / 2;
-      m.castShadow = true;
-      g.add(m);
-      // Glow ring on top
-      const ringGeo = new THREE.TorusGeometry(0.8, 0.06, 8, 20);
-      const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 });
-      const ring    = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = MACHINE_H + 0.15;
-      g.add(ring);
-      const light = new THREE.PointLight(color, 2.5, 10);
-      light.position.set(0, MACHINE_H, 0);
-      g.add(light);
-      g.position.set(pos.x, 0, pos.z);
-      return { g, ring, light };
-    }
-    const blueM = makeMachine(MAP_LAYOUT.blueMachinePos, CLR_BLUE_MACH);
-    const redM  = makeMachine(MAP_LAYOUT.redMachinePos,  CLR_RED_MACH);
-    scene.add(blueM.g);
-    scene.add(redM.g);
+    // ── Player / camera state ─────────────────────────────────────────────────
+    const pos   = new THREE.Vector3(0, 0, 0);
+    const camV  = new THREE.Vector3();   // smoothed camera position
+    let yaw     = 0;      // camera yaw   (rad)  — 0 = looks +Z
+    let pitch   = -0.38;  // camera pitch (rad)  — negative → cam is above player
+    let walkPhase = 0;
+    let locked  = false;
 
-    // ── Core boxes ────────────────────────────────────────────────────────────
-    const coreBoxMeshes = new Map<string, THREE.Mesh>();
-    for (const box of engine.state.coreBoxes) {
-      const col  = CORE_BOX_CLR[box.color] ?? 0xffffff;
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.45, 0.45, 0.45),
-        new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.5 }),
-      );
-      mesh.position.set(box.pos.x, box.pos.y, box.pos.z);
-      mesh.castShadow = true;
-      scene.add(mesh);
-      coreBoxMeshes.set(box.id, mesh);
-    }
+    const SPEED      = 8.0;
+    const SPRINT_MUL = 1.65;
+    const CAM_DIST   = 5.5;
+    const CAM_LOOK_Y = 1.5;    // look-at height (chest)
+    const CAM_LERP   = 0.16;
+    const PITCH_MIN  = -1.15;
+    const PITCH_MAX  =  0.25;
+    const MOUSE_SENS = 0.003;
 
-    // ── Bot meshes — capsule placeholder replaced by GLB model on load ────────
-    const botMeshes = new Map<string, THREE.Group>();
-    function makeBotCapsule(team: "blue" | "red") {
-      const color = team === "blue" ? CLR_BLUE_BOT : CLR_RED_BOT;
-      const g     = new THREE.Group();
-      const mat   = new THREE.MeshLambertMaterial({ color });
-      const body  = new THREE.Mesh(
-        new THREE.CylinderGeometry(BOT_CAPSULE_R, BOT_CAPSULE_R, BOT_CAPSULE_H - BOT_CAPSULE_R * 2, 8),
-        mat,
-      );
-      body.position.y = BOT_CAPSULE_H / 2;
-      body.castShadow = true;
-      g.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(BOT_CAPSULE_R, 8, 8), mat);
-      head.position.y = BOT_CAPSULE_H;
-      head.castShadow = true;
-      g.add(head);
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.11, 0.3, 6),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
-      );
-      cone.position.y = BOT_CAPSULE_H + BOT_CAPSULE_R + 0.2;
-      g.add(cone);
-      return g;
-    }
-    for (const bot of engine.state.bots) {
-      const m = makeBotCapsule(bot.team);
-      botMeshes.set(bot.id, m);
-      scene.add(m);
-    }
+    // ── Input ─────────────────────────────────────────────────────────────────
+    const keys = new Set<string>();
 
-    // ── Shared GLTFLoader — declared once, used for all model loads ───────────
-    const loader = new GLTFLoader();
-
-    // Replace capsule with actual GLB character model once it loads
-    function applyModelToBots(
-      gltfScene: THREE.Group,
-      team: "blue" | "red",
-    ) {
-      const color = team === "blue" ? CLR_BLUE_BOT : CLR_RED_BOT;
-      for (const bot of engine.state.bots) {
-        if (bot.team !== team) continue;
-        const group = botMeshes.get(bot.id);
-        if (!group) continue;
-        while (group.children.length > 0) group.remove(group.children[0]);
-        const model = gltfScene.clone(true);
-        const { h, minY } = computeModelBounds(model);
-        const scale = h > 0 ? 1.8 / h : 1;
-        model.scale.setScalar(scale);
-        model.position.y = -minY * scale;
-        model.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) {
-            o.castShadow    = true;
-            o.receiveShadow = true;
-          }
-        });
-        group.add(model);
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(0.11, 0.3, 6),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
-        );
-        cone.position.y = BOT_CAPSULE_H + BOT_CAPSULE_R + 0.22;
-        group.add(cone);
-      }
-    }
-    loader.load(
-      "/assets/characters/andromeda.glb",
-      (gltf) => applyModelToBots(gltf.scene, "blue"),
-      undefined,
-      () => { /* keep capsule fallback on error */ },
-    );
-    loader.load(
-      "/assets/characters/fighter.glb",
-      (gltf) => applyModelToBots(gltf.scene, "red"),
-      undefined,
-      () => { /* keep capsule fallback on error */ },
-    );
-
-    // ── Player group ──────────────────────────────────────────────────────────
-    const playerGroup = new THREE.Group();
-    scene.add(playerGroup);
-    // ── Player character body (TPS — visible from behind camera) ─────────────
-    const playerChar = CHARACTERS.find(c => c.id === config.playerCharacterId);
-    if (playerChar?.modelPath) {
-      loader.load(playerChar.modelPath, (gltf) => {
-        const model = gltf.scene;
-        const { h, minY } = computeModelBounds(model);
-        const scale = h > 0 ? 1.8 / h : 1;
-        model.scale.setScalar(scale);
-        model.position.y = -minY * scale;
-        model.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
-        playerGroup.add(model);
-      });
-    }
-
-    // ── Weapon model (real GLB, at player's right hand in TPS) ───────────────
-    const weaponGroup = new THREE.Group();
-    scene.add(weaponGroup);
-    let currentWeaponId = "";
-
-    function loadWeaponModel(weaponId: string) {
-      if (weaponId === currentWeaponId) return;
-      currentWeaponId = weaponId;
-      while (weaponGroup.children.length > 0) weaponGroup.remove(weaponGroup.children[0]);
-      const path = (WEAPON_MODEL_PATH as Record<string, string>)[weaponId];
-      if (!path) return;
-      loader.load(path, (gltf) => {
-        if (currentWeaponId !== weaponId) return; // stale load
-        const model = gltf.scene;
-        const { h, minY } = computeModelBounds(model);
-        const sc = h > 0 ? 0.5 / h : 1;
-        model.scale.setScalar(sc);
-        model.position.y = -minY * sc;
-        model.traverse(o => {
-          if ((o as THREE.Mesh).isMesh) { o.castShadow = false; o.receiveShadow = false; }
-        });
-        weaponGroup.add(model);
-      }, undefined, () => {
-        if (currentWeaponId !== weaponId) return;
-        const fb = new THREE.Mesh(
-          new THREE.BoxGeometry(0.06, 0.06, 0.35),
-          new THREE.MeshLambertMaterial({ color: 0x222222 }),
-        );
-        weaponGroup.add(fb);
-      });
-    }
-
-    // ── Bullet trail pool ─────────────────────────────────────────────────────
-    const bulletLines: THREE.Line[] = [];
-    for (let i = 0; i < BULLET_POOL_SZ; i++) {
-      const pts = [new THREE.Vector3(), new THREE.Vector3()];
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: CLR_BULLET, transparent: true, opacity: 0.8 });
-      const ln  = new THREE.Line(geo, mat);
-      ln.visible = false;
-      scene.add(ln);
-      bulletLines.push(ln);
-    }
-
-    // ── Load buildings ────────────────────────────────────────────────────────
-    for (const b of MAP_LAYOUT.buildings) {
-      loader.load(`/assets/environment/buildings/${b.glb}`, (gltf) => {
-        const m = gltf.scene;
-        m.scale.setScalar(b.scale);
-        m.rotation.y = b.rotY;
-        m.position.set(b.pos.x, 0, b.pos.z);
-        m.traverse(o => {
-          if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; }
-        });
-        scene.add(m);
-      }, undefined, () => {});
-    }
-
-    // ── Load props ────────────────────────────────────────────────────────────
-    for (const p of MAP_LAYOUT.props) {
-      loader.load(`/assets/environment/props/${p.glb}`, (gltf) => {
-        const m = gltf.scene;
-        m.scale.setScalar(p.scale);
-        m.rotation.y = p.rotY;
-        m.position.set(p.pos.x, 0, p.pos.z);
-        m.traverse(o => {
-          if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; }
-        });
-        scene.add(m);
-      }, undefined, () => {});
-    }
-
-    // ── Keyboard input ────────────────────────────────────────────────────────
     const onKeyDown = (e: KeyboardEvent) => {
+      const BLOCK = ["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"];
+      if (BLOCK.includes(e.code)) e.preventDefault();
+      keys.add(e.code);
       if (e.code === "Escape") {
-        setShowCrafting(false);
-        return;
-      }
-      keysRef.current.add(e.code);
-      if (e.code === "KeyE") {
-        inputRef.current.interact = true;
-        // Toggle crafting panel when near blue machine
-        const st = engineRef.current?.state;
-        if (st?.nearMachineTeam === "blue") {
-          setShowCrafting(prev => !prev);
-        }
+        if (locked) document.exitPointerLock();
+        handleExit();
       }
     };
-    const onKeyUp = (e: KeyboardEvent) => {
-      keysRef.current.delete(e.code);
-      if (e.code === "KeyE") inputRef.current.interact = false;
-    };
+    const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup",   onKeyUp);
 
-    // ── Mouse (pointer lock) ──────────────────────────────────────────────────
+    const onCanvasClick = () => { if (!locked) canvas.requestPointerLock(); };
+    canvas.addEventListener("click", onCanvasClick);
+
     const onMouseMove = (e: MouseEvent) => {
-      if (document.pointerLockElement === canvas) {
-        inputRef.current.deltaYaw   += -e.movementX * MOUSE_SENS;
-        inputRef.current.deltaPitch +=  e.movementY * MOUSE_SENS;
-      }
+      if (!locked) return;
+      yaw   -= e.movementX * MOUSE_SENS;
+      pitch -= e.movementY * MOUSE_SENS;
+      pitch  = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
     };
-    const onClick = () => {
-      if (document.pointerLockElement !== canvas) {
-        canvas.requestPointerLock();
-      } else {
-        inputRef.current.fire = true;
-      }
-    };
-    const onMouseDown = (e: MouseEvent) => {
-      if (document.pointerLockElement === canvas && e.button === 0) {
-        inputRef.current.fire = true;
-      }
-    };
-    const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) inputRef.current.fire = false;
-    };
-    document.addEventListener("mousemove",  onMouseMove);
-    canvas.addEventListener("click",       onClick);
-    canvas.addEventListener("mousedown",   onMouseDown);
-    window.addEventListener("mouseup",    onMouseUp);
-    canvas.addEventListener("contextmenu", e => e.preventDefault());
+    document.addEventListener("mousemove", onMouseMove);
+
+    const onLockChange = () => { locked = document.pointerLockElement === canvas; };
+    document.addEventListener("pointerlockchange", onLockChange);
 
     // ── Resize ────────────────────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
       if (!w || !h) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     });
     ro.observe(canvas);
-
-    // ── Camera tracking vars — start behind player based on spawn yaw ─────────
-    const initYaw = MAP_LAYOUT.playerSpawnYaw;
-    let camX      = MAP_LAYOUT.playerSpawn.x - Math.sin(initYaw) * CAM_DIST;
-    let camZ      = MAP_LAYOUT.playerSpawn.z - Math.cos(initYaw) * CAM_DIST;
-    const lookAt = new THREE.Vector3();
-    let hudTimer  = 0;
-    let bulletIdx = 0;
-    let prevTime  = 0;
-    const clock   = new THREE.Clock();
-
-    // ── Audio tracking ────────────────────────────────────────────────────────
-    let prevBluekills  = 0;
-    let prevRedKills   = 0;
-    let prevAmmo       = engine.state.playerAmmo;
-    let prevPhase      = engine.state.phase;
-    let footstepTimer  = 0;
-    let footstepStep   = 0;
+    {
+      const w = canvas.clientWidth  || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    // Initialise smooth-cam position to behind player
+    camV.set(0, CAM_LOOK_Y - Math.sin(pitch) * CAM_DIST, -CAM_DIST * Math.cos(pitch));
 
     // ── Render loop ───────────────────────────────────────────────────────────
-    let raf: number;
+    const clock  = new THREE.Clock();
+    const tmpCam = new THREE.Vector3();
+    let raf = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
-      const t  = clock.getElapsedTime();
-      const dt = Math.min(t - prevTime, 0.08);
-      prevTime = t;
+      const dt = Math.min(clock.getDelta(), 0.05);
 
-      // Build keyboard move input
-      const inp = inputRef.current;
-      const keys = keysRef.current;
-      // On mobile, joystick sets moveX/moveZ directly — don't overwrite with keyboard zeros
-      if (!isMobileRef.current) {
-        inp.moveZ = 0; inp.moveX = 0;
-        if (keys.has("KeyW") || keys.has("ArrowUp"))    inp.moveZ =  1;
-        if (keys.has("KeyS") || keys.has("ArrowDown"))  inp.moveZ = -1;
-        if (keys.has("KeyA") || keys.has("ArrowLeft"))  inp.moveX = -1;
-        if (keys.has("KeyD") || keys.has("ArrowRight")) inp.moveX =  1;
-      }
-      inp.sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      // ── Movement ────────────────────────────────────────────────────────────
+      // forward dir = (sin yaw, 0, cos yaw)  [yaw 0 → +Z axis]
+      // right   dir = (cos yaw, 0, -sin yaw)
+      let fwd = 0, rgt = 0;
+      if (keys.has("KeyW") || keys.has("ArrowUp"))    fwd =  1;
+      if (keys.has("KeyS") || keys.has("ArrowDown"))  fwd = -1;
+      if (keys.has("KeyD") || keys.has("ArrowRight")) rgt =  1;
+      if (keys.has("KeyA") || keys.has("ArrowLeft"))  rgt = -1;
 
-      engine.update(dt, inp);
-      const state = engine.state;
+      const sprint   = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      const isMoving = fwd !== 0 || rgt !== 0;
+      const spd      = SPEED * (sprint ? SPRINT_MUL : 1.0);
 
-      // Reset per-frame deltas
-      inp.deltaYaw   = 0;
-      inp.deltaPitch = 0;
+      const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
 
-      // ── Audio events ───────────────────────────────────────────────────────
-      if (state.playerAmmo < prevAmmo && !state.isReloading) {
-        const w = state.playerWeaponId;
-        if (w.includes("pistol"))  playAudio("/assets/sfx/weapons/pistol_fire.mp3", 0.5);
-        else if (w.includes("smg")) playAudio("/assets/sfx/weapons/smg_fire.mp3",   0.4);
-        else if (w.includes("ar") || w === "ak74") playAudio("/assets/sfx/weapons/ar_fire.mp3", 0.5);
-        else if (w.includes("shotgun")) playAudio("/assets/sfx/weapons/shotgun_fire.mp3", 0.6);
-        else if (w.includes("sniper"))  playAudio("/assets/sfx/weapons/pistol_fire.mp3",  0.7);
-        else if (w.includes("heavy"))   playAudio("/assets/sfx/weapons/heavy_fire.mp3",   0.7);
-      }
-      prevAmmo = state.playerAmmo;
-
-      // Kill sounds
-      if (state.blueKills > prevBluekills) playAudio("/assets/sfx/game/kill.mp3", 0.8);
-      prevBluekills = state.blueKills;
-      prevRedKills  = state.redKills;
-
-      // Footsteps
-      const isMoving = Math.abs(inp.moveX) > 0.05 || Math.abs(inp.moveZ) > 0.05;
       if (isMoving) {
-        footstepTimer -= dt;
-        if (footstepTimer <= 0) {
-          footstepTimer = 0.42;
-          footstepStep  = (footstepStep + 1) % 3;
-          playAudio(`/assets/sfx/game/footstep${footstepStep + 1}.mp3`, 0.3);
-        }
+        const len = Math.sqrt(fwd * fwd + rgt * rgt);
+        // world-space movement direction
+        const nx = (sinY * fwd + cosY * rgt) / len;
+        const nz = (cosY * fwd - sinY * rgt) / len;
+        pos.x += nx * spd * dt;
+        pos.z += nz * spd * dt;
+
+        // Character faces movement direction
+        char.root.rotation.y = Math.atan2(nx, nz);
+        walkPhase += dt * (sprint ? 12 : 8);
       } else {
-        footstepTimer = 0;
+        // Standing still → face camera forward
+        char.root.rotation.y = yaw;
+        walkPhase = 0;
       }
 
-      // Win/lose sound (once)
-      if (state.phase !== prevPhase && state.phase !== "playing" && !endedRef.current) {
-        endedRef.current = true;
-        setTimeout(() => {
-          if (state.phase === "won") playAudio("/assets/sfx/game/win.mp3", 0.7);
-          else                       playAudio("/assets/sfx/game/lose.mp3", 0.7);
-        }, 500);
+      char.root.position.set(pos.x, 0, pos.z);
+
+      // ── Walk animation ──────────────────────────────────────────────────────
+      const swing = isMoving ? Math.sin(walkPhase) * (sprint ? 0.65 : 0.50) : 0;
+      char.armLPiv.rotation.x =  swing * 0.65;
+      char.armRPiv.rotation.x = -swing * 0.65;
+      char.legLPiv.rotation.x = -swing;
+      char.legRPiv.rotation.x =  swing;
+
+      if (!isMoving) {
+        const idle = Math.sin(clock.elapsedTime * 1.4) * 0.03;
+        char.armLPiv.rotation.z =  0.06 + idle;
+        char.armRPiv.rotation.z = -0.06 - idle;
+      } else {
+        char.armLPiv.rotation.z = 0;
+        char.armRPiv.rotation.z = 0;
       }
-      prevPhase = state.phase;
 
-      // ── Player ─────────────────────────────────────────────────────────────
-      playerGroup.position.set(state.playerPos.x, 0, state.playerPos.z);
-      // +PI: Three.js default mesh forward is -Z, but engine forward is +Z(yaw)
-      playerGroup.rotation.y = state.playerYaw + Math.PI;
-
-      // ── Camera follow ──────────────────────────────────────────────────────
-      const yaw     = state.cameraYaw;
-      const pitch   = state.cameraPitch;
-      const cosP    = Math.cos(pitch);
-      const tgtX    = state.playerPos.x - Math.sin(yaw) * cosP * CAM_DIST;
-      const tgtY    = CAM_HEIGHT + Math.sin(pitch) * CAM_DIST;
-      const tgtZ    = state.playerPos.z - Math.cos(yaw) * cosP * CAM_DIST;
-      const alpha   = Math.min(CAM_SMOOTH * dt, 1);
-      camX         += (tgtX - camX) * alpha;
-      camZ         += (tgtZ - camZ) * alpha;
-      camera.position.set(camX, tgtY, camZ);
-      // TPS: look at head level so screen-center crosshair appears above character
-      lookAt.set(state.playerPos.x, 1.8, state.playerPos.z);
-      camera.lookAt(lookAt);
-
-      // ── Weapon at player's right hand (TPS world-space) ────────────────────
-      loadWeaponModel(state.playerWeaponId);
-      const sinW = Math.sin(state.playerYaw);
-      const cosW = Math.cos(state.playerYaw);
-      weaponGroup.position.set(
-        state.playerPos.x + cosW * 0.38 + sinW * 0.22,
-        0.90,
-        state.playerPos.z - sinW * 0.38 + cosW * 0.22,
+      // ── TPS Camera ──────────────────────────────────────────────────────────
+      // Orbit around player at (yaw, pitch)
+      // Camera position = player + offset in spherical coords
+      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      tmpCam.set(
+        pos.x - sinY * CAM_DIST * cp,
+        CAM_LOOK_Y - sp * CAM_DIST,   // negative pitch → cam above player
+        pos.z - cosY * CAM_DIST * cp,
       );
-      weaponGroup.rotation.y = state.playerYaw;
-
-      // ── Bots ───────────────────────────────────────────────────────────────
-      for (const bot of state.bots) {
-        const m = botMeshes.get(bot.id);
-        if (!m) continue;
-        const dead = bot.aiState === "dead";
-        m.visible  = !dead;
-        if (!dead) {
-          m.position.set(bot.pos.x, 0, bot.pos.z);
-          m.rotation.y = bot.yaw + Math.PI;
-        }
-      }
-
-      // ── Core boxes ─────────────────────────────────────────────────────────
-      for (const box of state.coreBoxes) {
-        const m = coreBoxMeshes.get(box.id);
-        if (!m) continue;
-        m.visible = !box.collected;
-        if (!box.collected) {
-          m.rotation.y = t * 1.5;
-          m.position.y = box.pos.y + Math.sin(t * 2 + box.pos.x) * 0.08;
-        }
-      }
-
-      // ── Machine pulse ──────────────────────────────────────────────────────
-      const pulse = (Math.sin(t * 2.8) + 1) * 0.5;
-      blueM.light.intensity = 1.5 + pulse;
-      redM.light.intensity  = 1.5 + pulse;
-      blueM.ring.rotation.z = t * 0.8;
-      redM.ring.rotation.z  = -t * 0.8;
-
-      // ── Bullet trails ──────────────────────────────────────────────────────
-      for (const ln of bulletLines) ln.visible = false;
-      bulletIdx = 0;
-      for (const bullet of state.bullets) {
-        if (bulletIdx >= BULLET_POOL_SZ) break;
-        const ln  = bulletLines[bulletIdx++];
-        const geo = ln.geometry;
-        const arr = geo.attributes.position?.array as Float32Array | undefined;
-        if (!arr) continue;
-        arr[0] = bullet.pos.x;
-        arr[1] = bullet.pos.y;
-        arr[2] = bullet.pos.z;
-        arr[3] = bullet.pos.x + bullet.vel.x * 0.04;
-        arr[4] = bullet.pos.y + bullet.vel.y * 0.04;
-        arr[5] = bullet.pos.z + bullet.vel.z * 0.04;
-        geo.attributes.position.needsUpdate = true;
-        ln.visible = true;
-      }
-
-      // ── HUD sync ───────────────────────────────────────────────────────────
-      hudTimer -= dt;
-      if (hudTimer <= 0 || state.phase !== "playing") {
-        hudTimer = HUD_SYNC_HZ;
-        setHudState({
-          ...state,
-          bots:      [...state.bots.map(b => ({ ...b, pos: { ...b.pos } }))],
-          bullets:   [...state.bullets],
-          coreBoxes: [...state.coreBoxes],
-          killFeed:  [...state.killFeed],
-        });
-      }
+      camV.lerp(tmpCam, CAM_LERP);
+      camera.position.copy(camV);
+      camera.lookAt(pos.x, CAM_LOOK_Y, pos.z);
 
       renderer.render(scene, camera);
     };
 
     animate();
 
+    // ── Cleanup ───────────────────────────────────────────────────────────────
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      document.removeEventListener("keydown",    onKeyDown);
-      document.removeEventListener("keyup",      onKeyUp);
-      document.removeEventListener("mousemove",  onMouseMove);
-      canvas.removeEventListener("click",        onClick);
-      canvas.removeEventListener("mousedown",    onMouseDown);
-      window.removeEventListener("mouseup",     onMouseUp);
-      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      document.removeEventListener("keydown",           onKeyDown);
+      document.removeEventListener("keyup",             onKeyUp);
+      document.removeEventListener("mousemove",         onMouseMove);
+      document.removeEventListener("pointerlockchange", onLockChange);
+      canvas.removeEventListener("click", onCanvasClick);
+      if (locked) document.exitPointerLock();
       renderer.dispose();
     };
-  }, [config]);
-
-  const handleCraftWeapon = useCallback((weaponId: string): boolean => {
-    const engine = engineRef.current;
-    if (!engine) return false;
-    const ok = engine.craftWeapon(weaponId);
-    if (ok) setShowCrafting(false);
-    return ok;
-  }, []);
+  }, [handleExit]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", cursor: "crosshair" }}
+        style={{ width: "100%", height: "100%", display: "block" }}
       />
 
-      {hudState && (
-        <BattleHUD
-          state={hudState}
-          config={config}
-          hudSettings={hudSettings}
-          onEnd={onEnd}
-          onMobileInput={handleMobileInput}
-          isMobile={isMobile}
-        />
-      )}
-
-      {/* Minimap */}
-      {hudState && hudState.phase === "playing" && (
-        <Minimap state={hudState} hudSettings={hudSettings} />
-      )}
-
-      {/* HUD Customize button — visible while playing */}
-      {hudState && hudState.phase === "playing" && !showCustomizer && (
-        <button
-          onClick={() => setShowCustomizer(true)}
-          title="Atur posisi HUD"
-          style={{
-            position:     "fixed",
-            top:          "clamp(8px,1.5vh,14px)",
-            right:        "clamp(8px,1.5vw,14px)",
-            zIndex:       55,
-            width:        "clamp(28px,4vw,36px)",
-            height:       "clamp(28px,4vw,36px)",
-            borderRadius: "50%",
-            background:   "rgba(0,0,0,0.55)",
-            border:       "1px solid rgba(255,255,255,0.2)",
-            color:        "#ffffff88",
-            fontSize:     "clamp(12px,1.8vw,16px)",
-            cursor:       "pointer",
-            display:      "flex", alignItems: "center", justifyContent: "center",
-            fontFamily:   FONT_NARROW,
-          }}
-        >⚙</button>
-      )}
-
-      {/* HUD Customizer panel */}
-      {showCustomizer && (
-        <HUDCustomizer
-          settings={hudSettings}
-          isMobile={isMobile}
-          onSave={handleSaveHUD}
-          onClose={() => setShowCustomizer(false)}
-        />
-      )}
-
-      {/* Crafting panel (shown when E pressed near blue machine) */}
-      {showCrafting && hudState && (
-        <CraftingPanel
-          state={hudState}
-          onCraft={handleCraftWeapon}
-          onClose={() => setShowCrafting(false)}
-        />
-      )}
-
-      {isMobile && (
-        <MobileControls onInput={handleMobileInput} />
-      )}
-
-      {/* Click-to-lock hint (desktop, before pointer lock) */}
-      {!isMobile && !hudState && (
+      {/* Crosshair */}
+      <div style={{
+        position: "absolute", top: "50%", left: "50%",
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none", width: 20, height: 20,
+      }}>
         <div style={{
-          position: "fixed", inset: 0, zIndex: 30,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          pointerEvents: "none",
-        }}>
-          <div style={{
-            background: "rgba(0,0,0,0.65)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            borderRadius: 6,
-            padding: "16px 28px",
-            color: "#fff",
-            fontFamily: "'Orbitron', monospace",
-            fontSize: "clamp(10px,1.6vw,14px)",
-            letterSpacing: "0.2em",
-          }}>KLIK UNTUK MULAI</div>
-        </div>
-      )}
+          position: "absolute", top: "50%", left: 0, right: 0,
+          height: 2, marginTop: -1,
+          background: "rgba(255,255,255,0.85)",
+          boxShadow: "0 0 4px rgba(0,0,0,0.8)",
+        }} />
+        <div style={{
+          position: "absolute", left: "50%", top: 0, bottom: 0,
+          width: 2, marginLeft: -1,
+          background: "rgba(255,255,255,0.85)",
+          boxShadow: "0 0 4px rgba(0,0,0,0.8)",
+        }} />
+      </div>
+
+      {/* Controls hint */}
+      <div style={{
+        position: "absolute", bottom: 20, left: "50%",
+        transform: "translateX(-50%)",
+        color: "rgba(255,255,255,0.8)",
+        fontSize: 13, fontFamily: "monospace",
+        background: "rgba(0,0,0,0.52)",
+        padding: "6px 18px", borderRadius: 6,
+        pointerEvents: "none", letterSpacing: "0.04em",
+        whiteSpace: "nowrap",
+      }}>
+        CLICK → kunci mouse &nbsp;|&nbsp; WASD = gerak &nbsp;|&nbsp; SHIFT = sprint &nbsp;|&nbsp; ESC = kembali
+      </div>
     </div>
   );
 }

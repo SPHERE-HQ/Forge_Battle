@@ -21,6 +21,7 @@ export default function NicknameForm({ onSubmit }: Props) {
       const t = setTimeout(() => inputRef.current?.focus(), 400);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [visible]);
 
   function validate(v: string): string {

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { CanvasTexture } from "three";
 
 function easeOut(t: number) { return 1 - Math.pow(1 - t, 3); }
 function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }
@@ -243,7 +244,7 @@ async function runThreeIntro(
   const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.6, 0.4, 0.3);
   composer.addPass(bloom);
 
-  function makeGlowText(opts: { text: string; font: string; color: string; glow: string; cw: number; ch: number; layers?: number; shadowBlur?: number }): THREE.CanvasTexture {
+  function makeGlowText(opts: { text: string; font: string; color: string; glow: string; cw: number; ch: number; layers?: number; shadowBlur?: number }): CanvasTexture {
     const canvas = document.createElement("canvas");
     canvas.width = opts.cw; canvas.height = opts.ch;
     const ctx = canvas.getContext("2d")!;

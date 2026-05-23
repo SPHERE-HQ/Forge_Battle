@@ -4,7 +4,7 @@ import {
   FONT_PRIMARY, FONT_NARROW,
   PANEL_SLIDE_MS,
   CHARACTERS, CHARACTER_BIOS,
-  type CharacterId,
+  type CharacterId, type CharacterBio,
 } from "../constants/game";
 import { useSettings } from "../context/SettingsContext";
 
@@ -332,7 +332,7 @@ function InfoTab({
   char, bio, tk,
 }: {
   char: typeof CHARACTERS[number];
-  bio:  ReturnType<typeof CHARACTER_BIOS[CharacterId]>;
+  bio:  CharacterBio;
   tk:   ReturnType<typeof getTheme>;
 }) {
   return (
@@ -419,7 +419,7 @@ function InfoTab({
 function SkinTab({
   bio, accent, tk,
 }: {
-  bio:    ReturnType<typeof CHARACTER_BIOS[CharacterId]>;
+  bio:    CharacterBio;
   accent: string;
   tk:     ReturnType<typeof getTheme>;
 }) {

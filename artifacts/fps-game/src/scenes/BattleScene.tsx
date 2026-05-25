@@ -3,26 +3,20 @@ import * as THREE from "three";
 import type { BattleConfig } from "../game/battleTypes";
 
 interface Props { config: BattleConfig; onEnd: (won: boolean, kills: number) => void; }
-type WeaponKind = "ar" | "pistol";
 
-const WEAPON_SPECS: Record<WeaponKind, { ammo: number; rate: number; auto: boolean; label: string }> = {
-  ar:     { ammo: 30, rate: 0.10, auto: true,  label: "AR" },
-  pistol: { ammo: 15, rate: 0.35, auto: false, label: "PISTOL" },
-};
-
-// ─── Mobile constants ──────────────────────────────────────────────────────────
 const JOY_BASE_R  = 65;
 const JOY_MAX_OFF = 48;
 const JOY_THUMB_R = 27;
 const CAM_SENS    = 0.006;
+const AMMO_MAX    = 30;
+const FIRE_RATE   = 0.10;
 
-// ─── Arm angles for proper 2-handed rifle hold ─────────────────────────────────
-const ARM_R_IDLE = -1.15;  // right arm: ~66° from vertical (pistol grip)
-const ARM_L_IDLE = -1.35;  // left arm:  ~77° from vertical (foregrip)
-const ARM_R_Z    = -0.10;  // slight inward
-const ARM_L_Z    =  0.22;  // more inward (left arm crosses toward center)
+// Arm angles — right arm crosses body to pistol-grip, left arm extends to foregrip
+const ARM_R_X = -0.52;   // forward tilt (rotation around X, negative = toward char +Z)
+const ARM_R_Z = -0.68;   // inward tilt (right arm goes toward centre)
+const ARM_L_X = -0.72;   // left arm more forward (reaches further for foregrip)
+const ARM_L_Z =  0.48;   // inward tilt (left arm goes toward centre)
 
-// ─── Box helper ────────────────────────────────────────────────────────────────
 function bx(
   w: number, h: number, d: number, color: number,
   x: number, y: number, z: number, shadow = true,
@@ -36,7 +30,6 @@ function bx(
   return m;
 }
 
-// ─── Blocky character ──────────────────────────────────────────────────────────
 interface BlockChar {
   root: THREE.Group;
   armLPiv: THREE.Group; armRPiv: THREE.Group;
@@ -44,15 +37,19 @@ interface BlockChar {
 }
 function buildChar(): BlockChar {
   const root = new THREE.Group();
+  // head
   root.add(bx(0.80, 0.80, 0.80, 0xffcc99, 0, 2.40, 0));
-  root.add(bx(0.16, 0.16, 0.02, 0x111111, -0.17, 2.46,  0.41, false));
-  root.add(bx(0.16, 0.16, 0.02, 0x111111,  0.17, 2.46,  0.41, false));
-  root.add(bx(0.22, 0.06, 0.02, 0x884422,  0.00, 2.22,  0.41, false));
+  root.add(bx(0.16, 0.16, 0.02, 0x111111, -0.17, 2.46, 0.41, false));
+  root.add(bx(0.16, 0.16, 0.02, 0x111111,  0.17, 2.46, 0.41, false));
+  root.add(bx(0.22, 0.06, 0.02, 0x884422,  0.00, 2.22, 0.41, false));
+  // body
   root.add(bx(1.00, 1.00, 0.50, 0x1155cc, 0, 1.50, 0));
+  // arms
   const armLPiv = new THREE.Group(); armLPiv.position.set(-0.675, 2.00, 0);
   armLPiv.add(bx(0.35, 1.00, 0.35, 0x1155cc, 0, -0.50, 0)); root.add(armLPiv);
   const armRPiv = new THREE.Group(); armRPiv.position.set( 0.675, 2.00, 0);
   armRPiv.add(bx(0.35, 1.00, 0.35, 0x1155cc, 0, -0.50, 0)); root.add(armRPiv);
+  // legs
   const legLPiv = new THREE.Group(); legLPiv.position.set(-0.18, 1.00, 0);
   legLPiv.add(bx(0.35, 1.00, 0.35, 0x1a1a44, 0, -0.50, 0)); root.add(legLPiv);
   const legRPiv = new THREE.Group(); legRPiv.position.set( 0.18, 1.00, 0);
@@ -60,22 +57,22 @@ function buildChar(): BlockChar {
   return { root, armLPiv, armRPiv, legLPiv, legRPiv };
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
 export default function BattleScene({ onEnd }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const joyState = useRef({ x: 0, y: 0 });
   const camDelta = useRef({ yaw: 0, pitch: 0 });
   const fireHeld = useRef(false);
-  const [joyVis, setJoyVis]         = useState({ x: 0, y: 0 });
-  const [ammo, setAmmo]             = useState(WEAPON_SPECS.ar.ammo);
-  const [reloading, setReloading]   = useState(false);
-  const ammoRef   = useRef(WEAPON_SPECS.ar.ammo);
+
+  const [joyVis, setJoyVis]       = useState({ x: 0, y: 0 });
+  const [ammo, setAmmo]           = useState(AMMO_MAX);
+  const [reloading, setReloading] = useState(false);
+  const ammoRef   = useRef(AMMO_MAX);
   const reloadRef = useRef(false);
 
   const handleExit = useCallback(() => onEnd(false, 0), [onEnd]);
 
-  // ── Joystick ─────────────────────────────────────────────────────────────────
+  // ── Joystick ──────────────────────────────────────────────────────────────────
   const joyId  = useRef(-1);
   const joyCtr = useRef({ x: 0, y: 0 });
   const onJoyStart = useCallback((e: React.TouchEvent) => {
@@ -99,7 +96,7 @@ export default function BattleScene({ onEnd }: Props) {
     joyId.current = -1; setJoyVis({ x: 0, y: 0 }); joyState.current = { x: 0, y: 0 };
   }, []);
 
-  // ── Camera swipe ─────────────────────────────────────────────────────────────
+  // ── Camera swipe ──────────────────────────────────────────────────────────────
   const camId   = useRef(-1);
   const camLast = useRef({ x: 0, y: 0 });
   const onCamStart = useCallback((e: React.TouchEvent) => {
@@ -118,7 +115,7 @@ export default function BattleScene({ onEnd }: Props) {
     if (Array.from(e.changedTouches).find(c => c.identifier === camId.current)) camId.current = -1;
   }, []);
 
-  // ── Fire ─────────────────────────────────────────────────────────────────────
+  // ── Fire ──────────────────────────────────────────────────────────────────────
   const fireId = useRef(-1);
   const onFireStart = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
@@ -134,23 +131,24 @@ export default function BattleScene({ onEnd }: Props) {
   // ── Reload ────────────────────────────────────────────────────────────────────
   const onReload = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
-    if (reloadRef.current || ammoRef.current >= WEAPON_SPECS.ar.ammo) return;
+    if (reloadRef.current || ammoRef.current >= AMMO_MAX) return;
     reloadRef.current = true; setReloading(true);
   }, []);
 
-  // ── Three.js scene ────────────────────────────────────────────────────────────
+  // ── Three.js ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     let disposed = false;
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog        = new THREE.FogExp2(0x87ceeb, 0.007);
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.007);
 
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
 
@@ -159,8 +157,8 @@ export default function BattleScene({ onEnd }: Props) {
     sun.shadow.mapSize.set(2048, 2048);
     const sc = 120;
     sun.shadow.camera.near = 1; sun.shadow.camera.far = 300;
-    sun.shadow.camera.left = -sc; sun.shadow.camera.right  =  sc;
-    sun.shadow.camera.top  =  sc; sun.shadow.camera.bottom = -sc;
+    sun.shadow.camera.left = -sc; sun.shadow.camera.right = sc;
+    sun.shadow.camera.top = sc; sun.shadow.camera.bottom = -sc;
     scene.add(sun, new THREE.AmbientLight(0x8899bb, 0.9));
     const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
     fill.position.set(-30, 20, -30); scene.add(fill);
@@ -179,26 +177,25 @@ export default function BattleScene({ onEnd }: Props) {
     const char = buildChar();
     scene.add(char.root);
 
-    // ── Weapon mount ──────────────────────────────────────────────────────────
-    // handR sits at wrist (bottom of right arm)
-    const handR = new THREE.Group();
-    handR.position.set(0, -1.0, 0);
-    char.armRPiv.add(handR);
+    // ── Weapon anchor — child of char.root, NOT of any arm ─────────────────────
+    // Placed at chest, slightly right of centre, forward of body.
+    // Barrel points in char.root's local +Z (character's forward).
+    const weaponAnchor = new THREE.Group();
+    // x = 0.18  right of centre (toward right hand)
+    // y = 1.65  chest height
+    // z = 0.28  forward of body
+    weaponAnchor.position.set(0.18, 1.65, 0.28);
+    char.root.add(weaponAnchor);
 
-    // weaponPivot: rotation.x = -ARM_R_IDLE cancels arm angle → barrel points forward
-    const weaponPivot = new THREE.Group();
-    weaponPivot.rotation.x = -ARM_R_IDLE;   // = +1.15  → barrel → char forward (+Z)
-    weaponPivot.position.set(-0.02, 0.04, 0.06);
-    handR.add(weaponPivot);
+    // Muzzle tip local inside weaponAnchor (+Z = forward)
+    // Will be updated after GLB loads; default assumes 2 unit barrel.
+    const muzzleLocal = new THREE.Vector3(0, 0.04, 1.55);
 
-    // Muzzle local (inside weaponPivot), updated after GLB loads
-    const muzzleVec = new THREE.Vector3(0, 0, 0.85);
-
-    // Muzzle flash
+    // Muzzle flash point-light
     const flashLight = new THREE.PointLight(0xff8800, 0, 5);
     scene.add(flashLight);
 
-    // ── Load AR GLB ───────────────────────────────────────────────────────────
+    // ── Load AR GLB ────────────────────────────────────────────────────────────
     import("three/examples/jsm/loaders/GLTFLoader.js").then(({ GLTFLoader }) => {
       if (disposed) return;
       const loader = new GLTFLoader();
@@ -208,134 +205,158 @@ export default function BattleScene({ onEnd }: Props) {
           if (disposed) return;
           const model = gltf.scene;
 
-          // Auto-scale: longest axis → 1.2 world units
-          const bbox = new THREE.Box3().setFromObject(model);
-          const size = new THREE.Vector3(); bbox.getSize(size);
+          // ── Scale: target barrel (longest dim) = 2.2 world units ──────────
+          // That gives a rifle roughly 80% of character height — looks big/correct.
+          const bbox0 = new THREE.Box3().setFromObject(model);
+          const size  = new THREE.Vector3(); bbox0.getSize(size);
           const longest = Math.max(size.x, size.y, size.z);
-          const scaleFactor = 1.2 / longest;
-          model.scale.setScalar(scaleFactor);
+          const targetLen = 2.2;
+          model.scale.setScalar(targetLen / longest);
 
-          // Detect barrel axis (longest dimension) and orient barrel → +Z
+          // ── Orient: rotate barrel → +Z (character forward) ────────────────
           if (size.x >= size.y && size.x >= size.z) {
-            // barrel along X → rotate so X points to +Z
+            // barrel along X → rotate so +X → +Z
             model.rotation.y = -Math.PI / 2;
           } else if (size.y >= size.x && size.y >= size.z) {
-            // barrel along Y → rotate so Y points to +Z
+            // barrel along Y → rotate so +Y → +Z
             model.rotation.x = -Math.PI / 2;
           }
-          // else barrel already along Z, no extra rotation
+          // else barrel already along Z
 
-          // Center on bounding box
-          bbox.setFromObject(model);
-          const center = new THREE.Vector3(); bbox.getCenter(center);
-          model.position.sub(center);
+          // ── Centre on bounding box ─────────────────────────────────────────
+          const bbox1 = new THREE.Box3().setFromObject(model);
+          const centre = new THREE.Vector3(); bbox1.getCenter(centre);
+          model.position.sub(centre);
 
-          // Shift so rear/grip is at origin, barrel extends in +Z
-          const bb2 = new THREE.Box3().setFromObject(model);
-          // Move model so its back end sits at z=-0.05 (slightly behind pivot)
-          model.position.z -= bb2.min.z + 0.05;
+          // ── Shift so pistol-grip end is near the anchor origin,
+          //    barrel extends forward (+Z) ────────────────────────────────────
+          const bbox2 = new THREE.Box3().setFromObject(model);
+          // Put rear face at z = -0.10 (slightly behind anchor)
+          model.position.z -= bbox2.min.z + 0.10;
 
-          // Shadows
           model.traverse(c => {
             if (c instanceof THREE.Mesh) { c.castShadow = true; c.receiveShadow = false; }
           });
 
-          weaponPivot.add(model);
+          weaponAnchor.add(model);
 
-          // Update muzzle: front Z of scaled model
-          const bb3 = new THREE.Box3().setFromObject(weaponPivot);
-          muzzleVec.set(0, bb3.max.y * 0.3, bb3.max.z);
+          // Update muzzle to front of bounding box
+          const bbox3 = new THREE.Box3().setFromObject(weaponAnchor);
+          muzzleLocal.set(0, bbox3.max.y * 0.25, bbox3.max.z - 0.05);
         },
         undefined,
         () => {
           if (disposed) return;
-          // Fallback: simple procedural rifle
-          const fb = new THREE.Group();
-          const B = 0x282828, D = 0x141414;
-          fb.add(bx(0.14, 0.14, 1.10, B, 0, 0.08,  0.52));
-          fb.add(bx(0.06, 0.06, 0.55, D, 0, 0.10,  1.32));
-          fb.add(bx(0.12, 0.12, 0.42, B, 0, 0.08,  0.90));
-          fb.add(bx(0.08, 0.34, 0.06, D, 0, -0.22, 0.35));
-          fb.add(bx(0.08, 0.24, 0.08, D, 0, -0.14, 0.04));
-          fb.add(bx(0.10, 0.10, 0.30, B, 0, 0.06, -0.17));
-          weaponPivot.add(fb);
-          muzzleVec.set(0, 0.10, 1.60);
-        }
+          // Fallback procedural rifle (darker, chunkier — visible even if GLB fails)
+          const G = new THREE.Group();
+          const B = 0x1a1a1a, D = 0x0a0a0a, TAN = 0x6b4c2a;
+          // receiver
+          G.add(bx(0.20, 0.22, 1.20, B,   0,  0.04,  0.55));
+          // barrel
+          G.add(bx(0.08, 0.08, 0.90, D,   0,  0.10,  1.45));
+          // handguard
+          G.add(bx(0.18, 0.18, 0.52, 0x333333, 0, 0.05, 1.06));
+          // magazine
+          G.add(bx(0.12, 0.46, 0.10, TAN, 0, -0.26,  0.42));
+          // pistol grip
+          G.add(bx(0.12, 0.34, 0.12, TAN, 0, -0.18,  0.08));
+          // stock
+          G.add(bx(0.16, 0.18, 0.44, B,   0,  0.05, -0.22));
+          // carry handle / scope rail
+          G.add(bx(0.08, 0.12, 0.50, 0x444444, 0, 0.22, 0.55));
+          weaponAnchor.add(G);
+          muzzleLocal.set(0, 0.10, 1.90);
+        },
       );
     });
 
-    // ── Bullet traces ─────────────────────────────────────────────────────────
+    // ── Bullet traces ──────────────────────────────────────────────────────────
     type Tracer = { line: THREE.Line; mat: THREE.LineBasicMaterial; life: number };
     const tracers: Tracer[] = [];
-    const raycaster = new THREE.Raycaster();
-    const screenCenter = new THREE.Vector2(0, 0);
+    const raycaster  = new THREE.Raycaster();
+    const screenCtr  = new THREE.Vector2(0, 0);
+    const muzzleW    = new THREE.Vector3();
 
     // ── State ─────────────────────────────────────────────────────────────────
-    const pos  = new THREE.Vector3(0, 0, 0);
+    const pos = new THREE.Vector3(0, 0, 0);
     const camV = new THREE.Vector3();
-    let yaw = 0, pitch = -0.38, walkPhase = 0, locked = false;
+    let yaw = 0, pitch = -0.25, walkPhase = 0, locked = false;
 
-    const SPEED = 8.0, SPRINT_MUL = 1.65;
-    const CAM_DIST = 5.5, CAM_LOOK_Y = 3.5, CAM_LERP = 0.16;
-    const PITCH_MIN = -1.15, PITCH_MAX = 0.25, MOUSE_SENS = 0.003;
+    const SPEED     = 8.0;
+    const SPRINT    = 1.65;
+    const CAM_DIST  = 5.5;
+    const CAM_Y     = 3.5;   // camera look-at height (crosshair above character head)
+    const CAM_LERP  = 0.16;
+    const PITCH_MIN = -1.10;
+    const PITCH_MAX =  0.25;
+    const MOUSE_S   =  0.003;
 
+    ammoRef.current = AMMO_MAX;
+
+    // Shoot animation
     const sAnim = { t: 0, active: false };
+    // Reload animation
     const rAnim = { t: 0, active: false, done: false };
     let fireCd = 0;
-    ammoRef.current = WEAPON_SPECS.ar.ammo;
 
     // ── Keyboard ──────────────────────────────────────────────────────────────
     const keys = new Set<string>();
     const onKeyDown = (e: KeyboardEvent) => {
-      if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+      if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code))
+        e.preventDefault();
       keys.add(e.code);
       if (e.code === "Escape") { if (locked) document.exitPointerLock(); handleExit(); }
-      if (e.code === "KeyR" && !reloadRef.current && ammoRef.current < WEAPON_SPECS.ar.ammo) {
+      if (e.code === "KeyR" && !reloadRef.current && ammoRef.current < AMMO_MAX) {
         reloadRef.current = true; setReloading(true);
       }
       if (e.code === "KeyF") fireHeld.current = true;
     };
-    const onKeyUp   = (e: KeyboardEvent) => { keys.delete(e.code); if (e.code === "KeyF") fireHeld.current = false; };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keys.delete(e.code);
+      if (e.code === "KeyF") fireHeld.current = false;
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup",   onKeyUp);
 
-    const onCanvasClick = () => { if (!locked) canvas.requestPointerLock(); };
-    canvas.addEventListener("click", onCanvasClick);
-    const onMouseMove = (e: MouseEvent) => {
+    const onClick = () => { if (!locked) canvas.requestPointerLock(); };
+    canvas.addEventListener("click", onClick);
+    const onMM = (e: MouseEvent) => {
       if (!locked) return;
-      yaw   -= e.movementX * MOUSE_SENS;
-      pitch -= e.movementY * MOUSE_SENS;
+      yaw   -= e.movementX * MOUSE_S;
+      pitch -= e.movementY * MOUSE_S;
       pitch  = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
     };
-    document.addEventListener("mousemove", onMouseMove);
-    const onLockChange = () => { locked = document.pointerLockElement === canvas; };
-    document.addEventListener("pointerlockchange", onLockChange);
+    document.addEventListener("mousemove", onMM);
+    const onLC = () => { locked = document.pointerLockElement === canvas; };
+    document.addEventListener("pointerlockchange", onLC);
 
     // ── Resize ────────────────────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       const w = canvas.clientWidth, h = canvas.clientHeight;
       if (!w || !h) return;
-      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false); camera.aspect = w / h;
+      camera.updateProjectionMatrix();
     });
     ro.observe(canvas);
     {
       const w = canvas.clientWidth || window.innerWidth;
       const h = canvas.clientHeight || window.innerHeight;
-      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false); camera.aspect = w / h;
+      camera.updateProjectionMatrix();
     }
-    camV.set(0, CAM_LOOK_Y - Math.sin(pitch) * CAM_DIST, -CAM_DIST * Math.cos(pitch));
+    camV.set(0, CAM_Y - Math.sin(pitch) * CAM_DIST, -CAM_DIST * Math.cos(pitch));
 
     // ── Render loop ───────────────────────────────────────────────────────────
-    const clock  = new THREE.Clock();
+    const clock = new THREE.Clock();
     const tmpCam = new THREE.Vector3();
-    const muzzleW = new THREE.Vector3();
     let raf = 0;
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
+      const t  = clock.elapsedTime;
 
-      // Touch camera
+      // Apply touch camera delta
       yaw   += camDelta.current.yaw;
       pitch += camDelta.current.pitch;
       camDelta.current.yaw = 0; camDelta.current.pitch = 0;
@@ -350,128 +371,156 @@ export default function BattleScene({ onEnd }: Props) {
       const jx = joyState.current.x, jy = joyState.current.y;
       if (jx * jx + jy * jy > 0.01) { fwd = -jy; rgt = -jx; }
 
-      const sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
-      const len    = Math.sqrt(fwd * fwd + rgt * rgt);
-      const isMoving = len > 0.05;
+      const sprint    = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      const len       = Math.sqrt(fwd * fwd + rgt * rgt);
+      const isMoving  = len > 0.05;
       const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
 
       if (isMoving) {
-        const spd = SPEED * (sprint ? SPRINT_MUL : 1.0) * Math.min(1, len);
+        const spd = SPEED * (sprint ? SPRINT : 1) * Math.min(1, len);
         const nx  = (sinY * fwd + cosY * rgt) / len;
         const nz  = (cosY * fwd - sinY * rgt) / len;
         pos.x += nx * spd * dt; pos.z += nz * spd * dt;
         char.root.rotation.y = Math.atan2(nx, nz);
         walkPhase += dt * (sprint ? 12 : 8) * Math.min(1, len);
       } else {
-        char.root.rotation.y = yaw; walkPhase = 0;
+        char.root.rotation.y = yaw;
+        walkPhase = 0;
       }
       char.root.position.set(pos.x, 0, pos.z);
 
-      // ── Firing ────────────────────────────────────────────────────────────
+      // ── Fire ────────────────────────────────────────────────────────────────
       fireCd = Math.max(0, fireCd - dt);
       if (fireHeld.current && !reloadRef.current && fireCd <= 0 && ammoRef.current > 0) {
         ammoRef.current--;
         setAmmo(ammoRef.current);
-        fireCd = WEAPON_SPECS.ar.rate;
-        if (!WEAPON_SPECS.ar.auto) fireHeld.current = false;
+        fireCd = FIRE_RATE;
 
-        // ── RAYCAST from camera through screen center (crosshair) ────────────
-        raycaster.setFromCamera(screenCenter, camera);
+        // Raycast from camera through screen centre (exact crosshair aim)
+        raycaster.setFromCamera(screenCtr, camera);
         const aimDir = raycaster.ray.direction.clone();
-        const aimOrigin = raycaster.ray.origin.clone();
-        // Hit point at max range (no collision detection yet, bots added later)
-        const hitPoint = aimOrigin.clone().addScaledVector(aimDir, 200);
+        const hitPt  = raycaster.ray.origin.clone().addScaledVector(aimDir, 200);
 
         // Muzzle world position
-        muzzleW.copy(muzzleVec);
-        weaponPivot.localToWorld(muzzleW);
+        muzzleW.copy(muzzleLocal);
+        weaponAnchor.localToWorld(muzzleW);
 
-        // ── Bullet trace: thin line from muzzle → hit point ──────────────────
-        const tPoints = [muzzleW.clone(), hitPoint];
-        const tGeo = new THREE.BufferGeometry().setFromPoints(tPoints);
-        const tMat = new THREE.LineBasicMaterial({ color: 0xffee44, transparent: true, opacity: 1.0 });
+        // Bullet trace line
+        const tGeo = new THREE.BufferGeometry().setFromPoints([muzzleW.clone(), hitPt]);
+        const tMat = new THREE.LineBasicMaterial({ color: 0xffee44, transparent: true, opacity: 1 });
         const tLine = new THREE.Line(tGeo, tMat);
         scene.add(tLine);
         tracers.push({ line: tLine, mat: tMat, life: 0.10 });
 
-        // Muzzle flash
+        // Flash
         flashLight.position.copy(muzzleW); flashLight.intensity = 6;
 
-        // Shoot recoil
+        // Shoot anim
         sAnim.active = true; sAnim.t = 0;
 
-        // Auto-reload on empty
         if (ammoRef.current === 0) { reloadRef.current = true; setReloading(true); }
       }
 
       // Decay flash
-      if (flashLight.intensity > 0) flashLight.intensity = Math.max(0, flashLight.intensity - dt * 40);
+      if (flashLight.intensity > 0)
+        flashLight.intensity = Math.max(0, flashLight.intensity - dt * 40);
 
       // ── Reload ──────────────────────────────────────────────────────────────
-      if (reloadRef.current && !rAnim.active) { rAnim.active = true; rAnim.t = 0; rAnim.done = false; }
+      if (reloadRef.current && !rAnim.active) {
+        rAnim.active = true; rAnim.t = 0; rAnim.done = false;
+      }
       if (rAnim.active) {
         rAnim.t = Math.min(1, rAnim.t + dt / 1.5);
         if (!rAnim.done && rAnim.t > 0.45) {
-          ammoRef.current = WEAPON_SPECS.ar.ammo; setAmmo(ammoRef.current); rAnim.done = true;
+          ammoRef.current = AMMO_MAX; setAmmo(AMMO_MAX); rAnim.done = true;
         }
-        if (rAnim.t >= 1) { rAnim.active = false; rAnim.t = 0; reloadRef.current = false; setReloading(false); }
+        if (rAnim.t >= 1) {
+          rAnim.active = false; rAnim.t = 0;
+          reloadRef.current = false; setReloading(false);
+        }
       }
 
-      // Update anims
-      if (sAnim.active) { sAnim.t = Math.min(1, sAnim.t + dt / 0.18); if (sAnim.t >= 1) { sAnim.active = false; sAnim.t = 0; } }
-
-      // Fade & remove tracers
-      for (let i = tracers.length - 1; i >= 0; i--) {
-        const t = tracers[i];
-        t.life -= dt;
-        t.mat.opacity = Math.max(0, t.life / 0.10);
-        if (t.life <= 0) { scene.remove(t.line); t.line.geometry.dispose(); t.mat.dispose(); tracers.splice(i, 1); }
-      }
-
-      // ── Arm / weapon animation ───────────────────────────────────────────────
-      // Shoot recoil: quick kick of right arm backward (+x) then return
-      let recoil = 0;
+      // Shoot anim progress
       if (sAnim.active) {
-        const st = sAnim.t;
-        recoil = st < 0.2 ? (st / 0.2) * 0.22 : (1 - (st - 0.2) / 0.8) * 0.22;
+        sAnim.t = Math.min(1, sAnim.t + dt / 0.18);
+        if (sAnim.t >= 1) { sAnim.active = false; sAnim.t = 0; }
       }
-      // Reload drop
-      let rdrop = 0;
+
+      // Fade traces
+      for (let i = tracers.length - 1; i >= 0; i--) {
+        const tr = tracers[i];
+        tr.life -= dt;
+        tr.mat.opacity = Math.max(0, tr.life / 0.10);
+        if (tr.life <= 0) {
+          scene.remove(tr.line); tr.line.geometry.dispose(); tr.mat.dispose();
+          tracers.splice(i, 1);
+        }
+      }
+
+      // ── Weapon anchor animation (bob & recoil) ────────────────────────────
+      const baseY   = 1.65;
+      const baseZ   = 0.28;
+      let   wBobY   = 0, wBobZ = 0, wRecoilZ = 0, wRecoilRX = 0;
+      let   rdrop   = 0;
+
+      if (sAnim.active) {
+        const s = sAnim.t;
+        const k = s < 0.25 ? s / 0.25 : 1 - (s - 0.25) / 0.75;
+        wRecoilZ  = -k * 0.18;   // weapon kicks backward
+        wRecoilRX =  k * 0.08;   // muzzle rises slightly
+      }
       if (rAnim.active) {
-        const rt = rAnim.t;
-        rdrop = rt < 0.3 ? rt / 0.3 * 1.0 : rt < 0.7 ? 1.0 : (1 - (rt - 0.7) / 0.3) * 1.0;
+        const s = rAnim.t;
+        rdrop = s < 0.3 ? s / 0.3 : s < 0.7 ? 1 : 1 - (s - 0.7) / 0.3;
+        wBobY = -rdrop * 0.30;   // weapon drops during reload
+      } else if (isMoving) {
+        wBobY = Math.sin(walkPhase) * (sprint ? 0.06 : 0.04);
+        wBobZ = Math.sin(walkPhase * 0.5) * 0.015;
+      } else {
+        wBobY = Math.sin(t * 1.5) * 0.015;
+      }
+
+      weaponAnchor.position.set(0.18, baseY + wBobY, baseZ + wBobZ + wRecoilZ);
+      weaponAnchor.rotation.x = wRecoilRX;
+
+      // ── Arm animation ──────────────────────────────────────────────────────
+      // Arms stay in rifle-hold pose; adjust slightly during walk/reload/shoot.
+      let recoilRX = 0;
+      if (sAnim.active) {
+        const s = sAnim.t;
+        recoilRX = (s < 0.25 ? s / 0.25 : 1 - (s - 0.25) / 0.75) * 0.10;
       }
 
       char.armRPiv.rotation.z = ARM_R_Z;
       char.armLPiv.rotation.z = ARM_L_Z;
 
       if (rAnim.active) {
-        char.armRPiv.rotation.x = ARM_R_IDLE + rdrop;
-        char.armLPiv.rotation.x = ARM_L_IDLE + rdrop * 0.6;
-        const rs = Math.sin(clock.elapsedTime * 1.4) * 0.02;
-        char.legLPiv.rotation.x = rs; char.legRPiv.rotation.x = -rs;
+        char.armRPiv.rotation.x = ARM_R_X + rdrop * 0.85;
+        char.armLPiv.rotation.x = ARM_L_X + rdrop * 0.60;
+        char.legLPiv.rotation.x = Math.sin(t * 1.4) * 0.02;
+        char.legRPiv.rotation.x = -Math.sin(t * 1.4) * 0.02;
       } else if (isMoving) {
-        const sw = Math.sin(walkPhase) * (sprint ? 0.48 : 0.36);
-        char.armRPiv.rotation.x = ARM_R_IDLE + sw * 0.35 + recoil;
-        char.armLPiv.rotation.x = ARM_L_IDLE - sw * 0.35;
+        const sw = Math.sin(walkPhase) * (sprint ? 0.42 : 0.30);
+        char.armRPiv.rotation.x = ARM_R_X + sw * 0.30 + recoilRX;
+        char.armLPiv.rotation.x = ARM_L_X - sw * 0.30;
         char.legLPiv.rotation.x = -sw; char.legRPiv.rotation.x = sw;
       } else {
-        const id = Math.sin(clock.elapsedTime * 1.4) * 0.03;
-        char.armRPiv.rotation.x = ARM_R_IDLE + id * 0.25 + recoil;
-        char.armLPiv.rotation.x = ARM_L_IDLE + id * 0.20;
-        char.legLPiv.rotation.x = id * 0.12; char.legRPiv.rotation.x = -id * 0.12;
+        const id = Math.sin(t * 1.5) * 0.02;
+        char.armRPiv.rotation.x = ARM_R_X + id * 0.20 + recoilRX;
+        char.armLPiv.rotation.x = ARM_L_X + id * 0.15;
+        char.legLPiv.rotation.x = id * 0.10; char.legRPiv.rotation.x = -id * 0.10;
       }
 
-      // ── TPS Camera ──────────────────────────────────────────────────────────
+      // ── TPS camera ──────────────────────────────────────────────────────────
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
       tmpCam.set(
         pos.x - sinY * CAM_DIST * cp,
-        CAM_LOOK_Y - sp * CAM_DIST,
-        pos.z - cosY * CAM_DIST * cp,
+        CAM_Y  - sp * CAM_DIST,
+        pos.z  - cosY * CAM_DIST * cp,
       );
       camV.lerp(tmpCam, CAM_LERP);
       camera.position.copy(camV);
-      camera.lookAt(pos.x, CAM_LOOK_Y, pos.z);
+      camera.lookAt(pos.x, CAM_Y, pos.z);
 
       renderer.render(scene, camera);
     };
@@ -484,66 +533,108 @@ export default function BattleScene({ onEnd }: Props) {
       ro.disconnect();
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup",   onKeyUp);
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("pointerlockchange", onLockChange);
-      canvas.removeEventListener("click", onCanvasClick);
+      document.removeEventListener("mousemove", onMM);
+      document.removeEventListener("pointerlockchange", onLC);
+      canvas.removeEventListener("click", onClick);
       if (locked) document.exitPointerLock();
-      tracers.forEach(t => { t.line.geometry.dispose(); t.mat.dispose(); });
+      tracers.forEach(tr => { tr.line.geometry.dispose(); tr.mat.dispose(); });
       renderer.dispose();
     };
   }, [handleExit, joyState, camDelta, fireHeld, ammoRef, reloadRef]);
 
   const joyAtCenter = joyVis.x === 0 && joyVis.y === 0;
-  const ammoLow = ammo <= Math.floor(WEAPON_SPECS.ar.ammo * 0.25);
+  const ammoLow = ammo <= Math.floor(AMMO_MAX * 0.25);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden" }}>
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
 
       {/* Crosshair */}
-      <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none", width: 24, height: 24 }}>
-        <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2, marginTop: -1, background: "rgba(255,255,255,0.9)", boxShadow: "0 0 4px #000c" }} />
-        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: "rgba(255,255,255,0.9)", boxShadow: "0 0 4px #000c" }} />
+      <div style={{ position: "absolute", top: "50%", left: "50%",
+        transform: "translate(-50%,-50%)", pointerEvents: "none", width: 26, height: 26 }}>
+        <div style={{ position: "absolute", top: "50%", left: 0, right: 0,
+          height: 2, marginTop: -1,
+          background: "rgba(255,255,255,0.92)", boxShadow: "0 0 4px #000c" }} />
+        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0,
+          width: 2, marginLeft: -1,
+          background: "rgba(255,255,255,0.92)", boxShadow: "0 0 4px #000c" }} />
       </div>
 
-      {/* Left joystick */}
+      {/* Joystick */}
       <div
-        style={{ position: "absolute", bottom: 48, left: 48, width: JOY_BASE_R * 2, height: JOY_BASE_R * 2, borderRadius: "50%", background: "rgba(255,255,255,0.10)", border: "2px solid rgba(255,255,255,0.30)", touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
-        onTouchStart={onJoyStart} onTouchMove={onJoyMove} onTouchEnd={onJoyEnd} onTouchCancel={onJoyEnd}
+        style={{ position: "absolute", bottom: 48, left: 48,
+          width: JOY_BASE_R * 2, height: JOY_BASE_R * 2, borderRadius: "50%",
+          background: "rgba(255,255,255,0.10)", border: "2px solid rgba(255,255,255,0.30)",
+          touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
+        onTouchStart={onJoyStart} onTouchMove={onJoyMove}
+        onTouchEnd={onJoyEnd} onTouchCancel={onJoyEnd}
       >
-        <div style={{ position: "absolute", top: "50%", left: "50%", transform: `translate(calc(-50% + ${joyVis.x}px), calc(-50% + ${joyVis.y}px))`, width: JOY_THUMB_R * 2, height: JOY_THUMB_R * 2, borderRadius: "50%", background: "rgba(255,255,255,0.50)", border: "2px solid rgba(255,255,255,0.70)", transition: joyAtCenter ? "transform 0.14s ease-out" : "none", pointerEvents: "none" }} />
+        <div style={{
+          position: "absolute", top: "50%", left: "50%",
+          transform: `translate(calc(-50% + ${joyVis.x}px), calc(-50% + ${joyVis.y}px))`,
+          width: JOY_THUMB_R * 2, height: JOY_THUMB_R * 2, borderRadius: "50%",
+          background: "rgba(255,255,255,0.50)", border: "2px solid rgba(255,255,255,0.70)",
+          transition: joyAtCenter ? "transform 0.14s ease-out" : "none",
+          pointerEvents: "none",
+        }} />
       </div>
 
       {/* Camera swipe area */}
       <div
-        style={{ position: "absolute", top: 0, right: 0, width: "55%", height: "60%", touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
-        onTouchStart={onCamStart} onTouchMove={onCamMove} onTouchEnd={onCamEnd} onTouchCancel={onCamEnd}
+        style={{ position: "absolute", top: 0, right: 0, width: "55%", height: "60%",
+          touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
+        onTouchStart={onCamStart} onTouchMove={onCamMove}
+        onTouchEnd={onCamEnd} onTouchCancel={onCamEnd}
       />
 
-      {/* Ammo display */}
-      <div style={{ position: "absolute", bottom: 195, right: 52, pointerEvents: "none", textAlign: "right" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: 2, marginBottom: 2 }}>AR</div>
-        <div style={{ fontSize: 26, fontWeight: 800, fontFamily: "monospace", color: ammoLow ? "#ff4444" : "#fff", textShadow: "0 2px 8px #000a", lineHeight: 1 }}>
+      {/* Ammo */}
+      <div style={{ position: "absolute", bottom: 200, right: 52,
+        pointerEvents: "none", textAlign: "right" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)",
+          letterSpacing: 2, marginBottom: 2 }}>AR</div>
+        <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "monospace",
+          color: ammoLow ? "#ff4444" : "#fff",
+          textShadow: "0 2px 8px #000a", lineHeight: 1 }}>
           {String(ammo).padStart(2, "0")}
-          <span style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", marginLeft: 3 }}>/{WEAPON_SPECS.ar.ammo}</span>
+          <span style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", marginLeft: 3 }}>
+            /{AMMO_MAX}
+          </span>
         </div>
-        {reloading && <div style={{ fontSize: 11, fontWeight: 700, color: "#ffbb00", letterSpacing: 1, marginTop: 2 }}>RELOADING…</div>}
+        {reloading && (
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#ffbb00",
+            letterSpacing: 1, marginTop: 2 }}>RELOADING…</div>
+        )}
       </div>
 
-      {/* Reload button */}
+      {/* Reload */}
       <div
         onTouchStart={onReload} onTouchEnd={e => e.stopPropagation()}
-        style={{ position: "absolute", bottom: 135, right: 62, width: 64, height: 64, borderRadius: "50%", background: reloading ? "rgba(255,187,0,0.30)" : "rgba(255,255,255,0.18)", border: `2px solid ${reloading ? "rgba(255,187,0,0.7)" : "rgba(255,255,255,0.45)"}`, display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", userSelect: "none", WebkitUserSelect: "none", opacity: reloading ? 0.5 : 1 }}
+        style={{ position: "absolute", bottom: 135, right: 62,
+          width: 64, height: 64, borderRadius: "50%",
+          background: reloading ? "rgba(255,187,0,0.25)" : "rgba(255,255,255,0.18)",
+          border: `2px solid ${reloading ? "rgba(255,187,0,0.7)" : "rgba(255,255,255,0.45)"}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
+          opacity: reloading ? 0.5 : 1 }}
       >
-        <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>RELOAD</span>
+        <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>
+          RELOAD
+        </span>
       </div>
 
-      {/* Fire button */}
+      {/* Fire */}
       <div
         onTouchStart={onFireStart} onTouchEnd={onFireEnd} onTouchCancel={onFireEnd}
-        style={{ position: "absolute", bottom: 48, right: 48, width: 90, height: 90, borderRadius: "50%", background: "rgba(255,60,60,0.30)", border: "3px solid rgba(255,80,80,0.70)", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", userSelect: "none", WebkitUserSelect: "none", boxShadow: "0 0 18px rgba(255,60,60,0.25)" }}
+        style={{ position: "absolute", bottom: 48, right: 48,
+          width: 90, height: 90, borderRadius: "50%",
+          background: "rgba(255,60,60,0.30)", border: "3px solid rgba(255,80,80,0.70)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
+          boxShadow: "0 0 18px rgba(255,60,60,0.25)" }}
       >
-        <span style={{ fontSize: 11, fontWeight: 900, color: "#fff", letterSpacing: 1 }}>FIRE</span>
+        <span style={{ fontSize: 11, fontWeight: 900, color: "#fff", letterSpacing: 1 }}>
+          FIRE
+        </span>
       </div>
     </div>
   );

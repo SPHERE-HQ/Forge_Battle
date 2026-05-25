@@ -317,11 +317,11 @@ export default function BattleScene({ onEnd }: Props) {
 
     // ── State ──────────────────────────────────────────────────────────────
     const pos  = new THREE.Vector3();
-    const camV = new THREE.Vector3();
-    let yaw = 0, pitch = -0.25, walkPhase = 0, locked = false;
-
     const SPEED     = 8.0, SPRINT_MUL = 1.65;
-    const CAM_DIST  = 5.5, CAM_LOOK_Y = 3.5;
+    const CAM_DIST  = 5.0, CAM_LOOK_Y = 1.85;
+    // Start camera behind & above character so first frame isn't inside ground
+    const camV = new THREE.Vector3(0, CAM_LOOK_Y + 1.5, -5.0);
+    let yaw = 0, pitch = -0.25, walkPhase = 0, locked = false;
     const CAM_LERP  = 0.16;
     const PITCH_MIN = -1.15, PITCH_MAX = 0.25;
     const MOUSE_S   = 0.003;

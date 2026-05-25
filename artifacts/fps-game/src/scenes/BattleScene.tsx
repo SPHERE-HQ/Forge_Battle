@@ -11,11 +11,21 @@ const CAM_SENS    = 0.006;
 const AMMO_MAX    = 30;
 const FIRE_RATE   = 0.10;
 
-// Arm angles — right arm crosses body to pistol-grip, left arm extends to foregrip
-const ARM_R_X = -0.52;   // forward tilt (rotation around X, negative = toward char +Z)
-const ARM_R_Z = -0.68;   // inward tilt (right arm goes toward centre)
-const ARM_L_X = -0.72;   // left arm more forward (reaches further for foregrip)
-const ARM_L_Z =  0.48;   // inward tilt (left arm goes toward centre)
+// ── Arm angles (computed so wrist meets weapon anchor) ─────────────────────────
+// Weapon anchor: (0.12, 1.30, 0.48) in char.root local.
+// Right shoulder pivot: (0.675, 2.0, 0).
+// Target wrist (pistol grip):  (0.16, 1.32, 0.52).
+//   Rz(-0.65) * Rx(-0.55) * (0,-1,0) → arm dir (-0.516, -0.678, 0.523)
+//   wrist = shoulder + dir = (0.159, 1.322, 0.523)  ✓ matches anchor.
+//
+// Left shoulder pivot: (-0.675, 2.0, 0).
+// Target wrist (foregrip ≈ 55 % along barrel):  (-0.18, 1.56, 0.75).
+//   Rz(+0.85) * Rx(-0.85) * (0,-1,0) → arm dir (0.496, -0.436, 0.751)
+//   wrist = shoulder + dir = (-0.179, 1.564, 0.751)  ✓ matches foregrip.
+const ARM_R_X = -0.55;
+const ARM_R_Z = -0.65;
+const ARM_L_X = -0.85;
+const ARM_L_Z =  0.85;
 
 function bx(
   w: number, h: number, d: number, color: number,
@@ -178,13 +188,12 @@ export default function BattleScene({ onEnd }: Props) {
     scene.add(char.root);
 
     // ── Weapon anchor — child of char.root, NOT of any arm ─────────────────────
-    // Placed at chest, slightly right of centre, forward of body.
-    // Barrel points in char.root's local +Z (character's forward).
+    // Positioned so pistol grip aligns with computed right-wrist position.
+    //   x=0.12  right of centre (between shoulders)
+    //   y=1.30  matches right wrist height with ARM_R_X=-0.55, ARM_R_Z=-0.65
+    //   z=0.48  forward of body (arm naturally extends this far)
     const weaponAnchor = new THREE.Group();
-    // x = 0.18  right of centre (toward right hand)
-    // y = 1.65  chest height
-    // z = 0.28  forward of body
-    weaponAnchor.position.set(0.18, 1.65, 0.28);
+    weaponAnchor.position.set(0.12, 1.30, 0.48);
     char.root.add(weaponAnchor);
 
     // Muzzle tip local inside weaponAnchor (+Z = forward)
@@ -381,7 +390,12 @@ export default function BattleScene({ onEnd }: Props) {
         const nx  = (sinY * fwd + cosY * rgt) / len;
         const nz  = (cosY * fwd - sinY * rgt) / len;
         pos.x += nx * spd * dt; pos.z += nz * spd * dt;
-        char.root.rotation.y = Math.atan2(nx, nz);
+        // While firing: snap to aim direction; otherwise face movement direction
+        if (fireHeld.current || reloadRef.current) {
+          char.root.rotation.y = yaw;
+        } else {
+          char.root.rotation.y = Math.atan2(nx, nz);
+        }
         walkPhase += dt * (sprint ? 12 : 8) * Math.min(1, len);
       } else {
         char.root.rotation.y = yaw;
@@ -458,8 +472,8 @@ export default function BattleScene({ onEnd }: Props) {
       }
 
       // ── Weapon anchor animation (bob & recoil) ────────────────────────────
-      const baseY   = 1.65;
-      const baseZ   = 0.28;
+      const baseY   = 1.30;
+      const baseZ   = 0.48;
       let   wBobY   = 0, wBobZ = 0, wRecoilZ = 0, wRecoilRX = 0;
       let   rdrop   = 0;
 

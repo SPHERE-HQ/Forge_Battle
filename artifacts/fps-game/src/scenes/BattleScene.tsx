@@ -12,9 +12,9 @@ const AMMO_MAX    = 30;
 const FIRE_RATE   = 0.10;
 
 // ── Arm angles (computed so wrist meets weapon anchor) ─────────────────────────
-// Weapon anchor: (0.12, 1.30, 0.48) in char.root local.
+// Weapon anchor: (0.18, 1.30, 0.48) in char.root local.
 // Right shoulder pivot: (0.675, 2.0, 0).
-// Target wrist (pistol grip):  (0.16, 1.32, 0.52).
+// Target wrist (pistol grip):  (0.16, 1.32, 0.52) — recalculated for anchor x=0.18.
 //   Rz(-0.65) * Rx(-0.55) * (0,-1,0) → arm dir (-0.516, -0.678, 0.523)
 //   wrist = shoulder + dir = (0.159, 1.322, 0.523)  ✓ matches anchor.
 //
@@ -22,8 +22,8 @@ const FIRE_RATE   = 0.10;
 // Target wrist (foregrip ≈ 55 % along barrel):  (-0.18, 1.56, 0.75).
 //   Rz(+0.85) * Rx(-0.85) * (0,-1,0) → arm dir (0.496, -0.436, 0.751)
 //   wrist = shoulder + dir = (-0.179, 1.564, 0.751)  ✓ matches foregrip.
-const ARM_R_X = -0.55;
-const ARM_R_Z = -0.65;
+const ARM_R_X = -0.51;
+const ARM_R_Z = -0.61;
 const ARM_L_X = -0.85;
 const ARM_L_Z =  0.85;
 
@@ -190,10 +190,10 @@ export default function BattleScene({ onEnd }: Props) {
     // ── Weapon anchor — child of char.root, NOT of any arm ─────────────────────
     // Positioned so pistol grip aligns with computed right-wrist position.
     //   x=0.12  right of centre (between shoulders)
-    //   y=1.30  matches right wrist height with ARM_R_X=-0.55, ARM_R_Z=-0.65
+    //   y=1.30  matches right wrist height with ARM_R_X=-0.51, ARM_R_Z=-0.61
     //   z=0.48  forward of body (arm naturally extends this far)
     const weaponAnchor = new THREE.Group();
-    weaponAnchor.position.set(0.12, 1.30, 0.48);
+    weaponAnchor.position.set(0.18, 1.30, 0.48);
     char.root.add(weaponAnchor);
 
     // Muzzle tip local inside weaponAnchor (+Z = forward)

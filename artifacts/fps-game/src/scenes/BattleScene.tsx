@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import type { BattleConfig } from "../game/battleTypes";
 
-interface Props { config: BattleConfig; onEnd: (won: boolean, kills: boolean) => void; }
+interface Props { config: BattleConfig; onEnd: (won: boolean, kills: number) => void; }
 type WeaponKind = "ar" | "pistol";
 
 const WEAPON_SPECS: Record<WeaponKind, { ammo: number; rate: number; auto: boolean; label: string }> = {

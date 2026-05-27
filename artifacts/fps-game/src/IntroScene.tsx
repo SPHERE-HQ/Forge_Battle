@@ -1,6 +1,24 @@
 import { useEffect, useRef } from "react";
 import type { CanvasTexture } from "three";
 
+// ── WebGL capability check — cached at module level, runs ONCE ─────────────
+// Calling canvas.getContext("webgl2") per-render would create a new WebGL
+// context on every render and exhaust the browser's context limit (4-8 on
+// mobile), preventing BattleScene from ever getting its own context.
+let _webglOk: boolean | null = null;
+function hasWebGL(): boolean {
+  if (_webglOk !== null) return _webglOk;
+  if (typeof document === "undefined") return (_webglOk = false);
+  const c = document.createElement("canvas");
+  const gl = c.getContext("webgl2") || c.getContext("webgl");
+  if (gl) {
+    // Explicitly release context so the browser can reuse the slot
+    const ext = gl.getExtension("WEBGL_lose_context");
+    ext?.loseContext();
+  }
+  return (_webglOk = gl !== null);
+}
+
 function easeOut(t: number) { return 1 - Math.pow(1 - t, 3); }
 function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }
 function invLerp(a: number, b: number, v: number) { return clamp((v - a) / (b - a), 0, 1); }
@@ -520,10 +538,8 @@ export default function IntroScene({ onComplete }: IntroSceneProps) {
     const container = mountRef.current;
     if (!container) return;
 
-    // Quick WebGL capability check before loading Three.js
-    const testCanvas = document.createElement("canvas");
-    const gl = testCanvas.getContext("webgl2") || testCanvas.getContext("webgl");
-    if (!gl) {
+    // Quick WebGL capability check before loading Three.js (uses cached result)
+    if (!hasWebGL()) {
       cssFallback.current = true;
       return; // let the JSX branch below handle rendering
     }
@@ -547,12 +563,9 @@ export default function IntroScene({ onComplete }: IntroSceneProps) {
   }, [onComplete]);
 
   // If WebGL is not available, render the CSS fallback directly
-  if (typeof document !== "undefined") {
-    const testCanvas = document.createElement("canvas");
-    const gl = testCanvas.getContext("webgl2") || testCanvas.getContext("webgl");
-    if (!gl) {
-      return <CSSFallbackIntro onComplete={onComplete} />;
-    }
+  // hasWebGL() is cached — does NOT create a new context on every render
+  if (!hasWebGL()) {
+    return <CSSFallbackIntro onComplete={onComplete} />;
   }
 
   return (

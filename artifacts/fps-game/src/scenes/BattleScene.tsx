@@ -197,7 +197,7 @@ export default function BattleScene({ onEnd }: Props) {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog        = new THREE.FogExp2(0x87ceeb, 0.007);
+    scene.fog        = new THREE.FogExp2(0x87ceeb, 0.005);
 
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
 
@@ -208,8 +208,8 @@ export default function BattleScene({ onEnd }: Props) {
     sun.shadow.camera.near = 1; sun.shadow.camera.far = 300;
     sun.shadow.camera.left = -sc; sun.shadow.camera.right =  sc;
     sun.shadow.camera.top  =  sc; sun.shadow.camera.bottom = -sc;
-    scene.add(sun, new THREE.AmbientLight(0x8899bb, 0.9));
-    scene.add(new THREE.DirectionalLight(0xaaccff, 0.4)).position.set(-30, 20, -30);
+    scene.add(sun, new THREE.AmbientLight(0xffffff, 1.2));
+    scene.add(new THREE.DirectionalLight(0xffffff, 0.6)).position.set(-30, 20, -30);
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(600, 600),
@@ -318,11 +318,11 @@ export default function BattleScene({ onEnd }: Props) {
     // ── State ──────────────────────────────────────────────────────────────
     const pos  = new THREE.Vector3();
     const SPEED     = 8.0, SPRINT_MUL = 1.65;
-    const CAM_DIST  = 5.0, CAM_LOOK_Y = 1.85;
-    // Start camera behind & above character so first frame isn't inside ground
-    const camV = new THREE.Vector3(0, CAM_LOOK_Y + 1.5, -5.0);
-    let yaw = 0, pitch = -0.25, walkPhase = 0, locked = false;
+    const CAM_DIST  = 5.0, CAM_LOOK_Y = 1.6;
     const CAM_LERP  = 0.16;
+    let yaw = 0, pitch = -0.25, walkPhase = 0, locked = false;
+    // Initial cam: directly behind (–Z) and above character
+    const camV = new THREE.Vector3(0, CAM_LOOK_Y + 1.4 - (-0.25) * 3.5, -CAM_DIST);
     const PITCH_MIN = -1.15, PITCH_MAX = 0.25;
     const MOUSE_S   = 0.003;
 
@@ -542,11 +542,13 @@ export default function BattleScene({ onEnd }: Props) {
       }
 
       // ── TPS Camera ────────────────────────────────────────────────────
-      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      // Simple orbit: camera sits behind+above the character.
+      // pitch < 0 = drag finger down = camera rises (looks more down).
+      const camHeight = Math.max(0.8, CAM_LOOK_Y + 1.4 - pitch * 3.5);
       tmpCam.set(
-        pos.x - sinY * CAM_DIST * cp,
-        CAM_LOOK_Y - sp * CAM_DIST,
-        pos.z - cosY * CAM_DIST * cp,
+        pos.x - sinY * CAM_DIST,
+        camHeight,
+        pos.z - cosY * CAM_DIST,
       );
       camV.lerp(tmpCam, CAM_LERP);
       camera.position.copy(camV);

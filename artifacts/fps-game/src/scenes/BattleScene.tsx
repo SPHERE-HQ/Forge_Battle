@@ -254,17 +254,37 @@ export default function BattleScene({ onEnd }: Props) {
           const bb = new THREE.Box3().setFromObject(model);
           const sz = new THREE.Vector3(); bb.getSize(sz);
           model.scale.setScalar(1.75 / Math.max(sz.x, sz.y, sz.z));
-          model.rotation.y = Math.PI / 2;
+
+          // ── Rotation math ───────────────────────────────────────────────
+          // GLB barrel is along the model's X axis; muzzle = -X end.
+          // handR's local frame (= elbowRPiv): forearm direction is -Y → world +Z.
+          // Goal: muzzle → handR -Y (forward), weapon top → handR +Z (up).
+          //
+          // Three.js Euler XYZ applies Rx·Ry·Rz, so transforms are applied Rz first:
+          //   Rz(π/2) maps model -X → [0,-1,0]  (handR -Y = forward) ✓
+          //   Ry(π/2) maps model +Y → [0,0,1]   (handR +Z = upward)  ✓
+          //   combined: rotation.set(0, π/2, π/2)
+          model.rotation.set(0, Math.PI / 2, Math.PI / 2);
+
           model.updateMatrixWorld(true);
           const bb2 = new THREE.Box3().setFromObject(model);
           const ctr = new THREE.Vector3(); bb2.getCenter(ctr);
-          model.position.sub(ctr);
+          model.position.sub(ctr);           // center model at handR origin
           model.updateMatrixWorld(true);
           const bb3 = new THREE.Box3().setFromObject(model);
-          const len  = bb3.max.z - bb3.min.z;
-          model.position.z -= bb3.max.z - len * 0.28;
+
+          // After rotation the barrel is along handR Y (-Y = muzzle, +Y = stock).
+          const len = bb3.max.y - bb3.min.y;
+          // Pistol grip is ~62% from muzzle (38% from stock) for AR-style rifle.
+          // In centered space: grip Y = len*(0.62 - 0.5) = len*0.12
+          // Shift model down so grip sits at handR origin (y=0).
+          const gripFrac = 0.62;
+          model.position.y -= len * (gripFrac - 0.5);
           handR.add(model);
-          muzzleLocal.set(0, 0, bb3.min.z + len * 0.03);
+
+          // Muzzle in handR local space (slightly inside tip to avoid clipping)
+          const muzzleY = bb3.min.y - len * (gripFrac - 0.5) + len * 0.02;
+          muzzleLocal.set(0, muzzleY, 0);
         },
       );
     });
@@ -414,10 +434,13 @@ export default function BattleScene({ onEnd }: Props) {
       }
 
       // ── Arm / weapon pose ───────────────────────────────────────────────
-      const R_UP_X = -0.42, R_UP_Z = -0.62;
-      const R_EL_X = -1.05, R_EL_Z =  0.18;
-      const L_UP_X = -0.78, L_UP_Z =  0.52;
-      const L_EL_X = -0.55, L_EL_Z = -0.10;
+      // Arm angles for AR hold: barrel points forward (+Z in world).
+      // Negative X = arm tilts forward (+Z); combined upper+elbow ≈ -1.4 rad
+      // puts the forearm nearly horizontal and pointing forward.
+      const R_UP_X = -0.50, R_UP_Z = -0.55;  // right upper arm: forward + inward
+      const R_EL_X = -0.92, R_EL_Z =  0.20;  // right forearm:   more forward
+      const L_UP_X = -0.82, L_UP_Z =  0.52;  // left upper arm:  further forward + inward
+      const L_EL_X = -0.52, L_EL_Z = -0.10;  // left forearm:    extend toward foregrip
 
       let recoil = 0;
       if (sAnim.active) {
